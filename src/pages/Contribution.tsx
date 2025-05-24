@@ -1,5 +1,6 @@
 import React from "react";
 import { Download, } from "lucide-react";
+import Sidebar from "../components/Layout";
 
 const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string }> = ({
   variant,
@@ -35,11 +36,9 @@ const ScrollArea: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className 
   <div className={`overflow-auto ${className}`} {...props} />
 );
 
-const ContributionPage: React.FC = () => {
+const Contribution: React.FC = () => {
   return (
-    <div className="flex h-screen">
-
-     
+  <div className="flex h-screen">
 
       {/* Main Content */}
       <main className="flex-1 bg-gray-100 p-6 overflow-auto">
@@ -98,4 +97,4 @@ const ContributionPage: React.FC = () => {
   );
 };
 
-export default ContributionPage;
+export default Contribution;
