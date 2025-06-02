@@ -53,6 +53,9 @@ const Layout = () => {
       <Link to="/documents" className="block hover:bg-gray-700 p-2 rounded">
         Documents
       </Link>
+       <Link to="/calendarEvent" className="block hover:bg-gray-700 p-2 rounded">
+        Calendar
+      </Link>
       <Link to="/complaints" className="block hover:bg-gray-700 p-2 rounded">
         Complaints
       </Link>
