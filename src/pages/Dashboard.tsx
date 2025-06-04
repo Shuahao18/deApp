@@ -1,13 +1,47 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../Firebase";
 import Sidebar from "../components/Layout";
 
-export default function Dashboard () {
+interface EventType {
+  id?: string;
+  title: string;
+  start: Date;
+  end: Date;
+}
+
+export default function Dashboard() {
+  const [events, setEvents] = useState<EventType[]>([]);
+
+  // Fetch events on mount
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "events"));
+        const eventsFromDB = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title,
+            start: new Date(data.start.seconds * 1000),
+            end: new Date(data.end.seconds * 1000),
+          };
+        });
+        setEvents(eventsFromDB);
+      } catch (error) {
+        console.error("Error fetching events:", error);
+      }
+    };
+
+    fetchEvents();
+  }, []);
+
   return (
     <div className="flex h-screen bg-gray-100">
-
       {/* Main Content */}
       <div className="flex-1 p-6 grid grid-cols-3 gap-4 overflow-y-auto">
         <div className="col-span-2 grid grid-rows-2 gap-4">
+          {/* HOA Stats */}
           <div className="bg-white rounded-xl shadow p-6">
             <h3 className="text-lg font-bold mb-4">HOA Member Stats</h3>
             <div className="grid grid-cols-4 gap-4 text-center">
@@ -30,19 +64,37 @@ export default function Dashboard () {
             </div>
           </div>
 
+          {/* Event List */}
           <div className="bg-white rounded-xl shadow p-6">
-            <h3 className="text-lg font-bold"></h3>
-            <p>Event List</p>
+            <h3 className="text-lg font-bold mb-4">Event List</h3>
+            
+              <p>No events available.</p>
+          
+         
+          
           </div>
         </div>
 
+        {/* Calendar Box */}
         <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-lg font-bold mb-4"></h3>
-          <p>Event Calendar</p>
+          <h3 className="text-lg font-bold mb-4">Event Calendar</h3>
+          {events.length === 0 ? (
+              <p>No events available.</p>
+            ) : (
+              <ul className="list-disc pl-4">
+                {events.map((event) => (
+                  <li key={event.id} className="mb-2">
+                    <span className="font-semibold">{event.title}</span> —{" "}
+                    <span className="text-gray-600">
+                      {event.start.toLocaleString()} to {event.end.toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
         </div>
+        
       </div>
     </div>
   );
-};
-
-
+}
