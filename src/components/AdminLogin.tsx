@@ -24,27 +24,45 @@ const AdminLogin: React.FC = () => {
   };
 
   return (
-    <div className="login-container">
-      <h2>Admin Login</h2>
-      <div>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-        />
-        <button onClick={handleLogin}>Login</button>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-      </div>
+   <div className="flex items-center
+                   justify-center min-h-screen
+                   bg-gray-100">
+  <div className="bg-white
+                    p-6 rounded
+                    shadow-md 
+                    w-full max-w-sm text-center">
+    <h2 className="text-xl
+                   font-semibold
+                  mb-4">Admin Login</h2>
+                  
+    <div className="space-y-4">
+      <input
+        type="email"
+        placeholder="Email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        className="w-full p-2 border rounded"
+        required
+      />
+      <input
+        type="password"
+        placeholder="Password"
+        value={password}
+        onChange={e => setPassword(e.target.value)}
+        className="w-full p-2 border rounded"
+        required
+      />
+      <button
+        onClick={handleLogin}
+        className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+      >
+        Login
+      </button>
+      {error && <p className="text-red-500">{error}</p>}
     </div>
+  </div>
+</div>
+
   );
 };
 
