@@ -23,8 +23,8 @@ export default function Dashboard() {
           return {
             id: doc.id,
             title: data.title,
-            start: new Date(data.start.seconds * 1000),
-            end: new Date(data.end.seconds * 1000),
+            start: new Date(data.start.seconds * 500),
+            end: new Date(data.end.seconds * 500),
           };
         });
         setEvents(eventsFromDB);
@@ -32,7 +32,6 @@ export default function Dashboard() {
         console.error("Error fetching events:", error);
       }
     };
-
     fetchEvents();
   }, []);
 
@@ -69,9 +68,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-bold mb-4">Event List</h3>
             
               <p>No events available.</p>
-          
-         
-          
+  
           </div>
         </div>
 
@@ -83,12 +80,12 @@ export default function Dashboard() {
             ) : (
               <ul className="list-disc pl-4">
                 {events.map((event) => (
-                  <li key={event.id} className="mb-2">
+                  <p key={event.id} className="mb-2">
                     <span className="font-semibold">{event.title}</span> —{" "}
                     <span className="text-gray-600">
                       {event.start.toLocaleString()} to {event.end.toLocaleString()}
                     </span>
-                  </li>
+                  </p>
                 ))}
               </ul>
             )}
