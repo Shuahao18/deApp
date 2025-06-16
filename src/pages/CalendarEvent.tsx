@@ -76,8 +76,8 @@ export default function CalendarEvent() {
   return (
     <div className="p-6">
       <h2 className="text-4xl font-poppins font-bold">Calendar Events</h2>
-      <div className="flex justify-between items-center mt-14 ">
-        <div className="mb-2 text-center text-gray-700 border border-gray-700">
+      <div className="flex justify-between items-center mt-14">
+        <div className="mb-2 text-center text-gray-700 border border-gray-700 px-4 py-2 rounded">
           Total Events:
           <div className="font-bold">{events.length}</div>
         </div>
@@ -94,30 +94,55 @@ export default function CalendarEvent() {
         {/* Event List */}
         <div className="lg:w-1/3 w-full bg-white rounded-lg shadow-md p-4">
           <div className="space-y-4 max-h-[500px] overflow-y-auto">
-            {events.map((event, index) => (
-              <div key={event.id || index} className="border-b pb-2">
-                <div className="font-medium">{event.title}</div>
-                <div className="text-sm text-gray-600">
-                  {event.start.toLocaleDateString(undefined, {
-                    weekday: "short",
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
+            {events.map((event, index) => {
+              const day = event.start.toLocaleDateString("en-US", {
+                day: "2-digit",
+              });
+              const month = event.start
+                .toLocaleDateString("en-US", {
+                  month: "short",
+                })
+                .toUpperCase();
+
+              return (
+                <div
+                  key={event.id || index}
+                  className="flex items-center gap-4 border-b pb-4"
+                >
+                  {/* Date Box */}
+                  <div className="flex flex-col items-center justify-center w-12 h-12 border rounded-md bg-gray-100 text-gray-700">
+                    <div className="text-lg font-bold leading-none">{day}</div>
+                    <div className="text-xs uppercase tracking-wider">
+                      {month}
+                    </div>
+                  </div>
+
+                  {/* Event Info */}
+                  <div className="flex-1">
+                    <div className="font-medium text-base">{event.title}</div>
+                    <div className="text-sm text-gray-600">
+                      {event.start.toLocaleDateString(undefined, {
+                        weekday: "short",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {event.start.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      –{" "}
+                      {event.end.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  {event.start.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}{" "}
-                  –{" "}
-                  {event.end.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -173,7 +198,7 @@ export default function CalendarEvent() {
               <div className="flex justify-end">
                 <button
                   onClick={handleAddEvent}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 "
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
                 >
                   Add Event
                 </button>
