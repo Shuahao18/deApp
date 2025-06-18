@@ -84,7 +84,7 @@ export default function CalendarEvent() {
 
         <button
           onClick={() => setShowModal(true)}
-          className="bg-blue-600 mt-14 mb-2 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          className="bg-gray-700 mt-14 mb-2 text-white px-4 py-2 rounded-md hover:bg-blue-700"
         >
           + Add Event
         </button>
@@ -110,10 +110,13 @@ export default function CalendarEvent() {
                   className="flex items-center gap-4 border-b pb-4"
                 >
                   {/* Date Box */}
-                  <div className="flex flex-col items-center justify-center w-12 h-12 border rounded-md bg-gray-100 text-gray-700">
-                    <div className="text-lg font-bold leading-none">{day}</div>
-                    <div className="text-xs uppercase tracking-wider">
+                  <div className="w-20 h-24 rounded-md border border-gray-400 overflow-hidden shadow-md">
+                    <div className="h-1/2 bg-green-600 text-white flex items-center justify-center text-sm font-bold uppercase">
                       {month}
+                    </div>
+
+                    <div className="h-1/2 bg-white text-green-600 flex items-center justify-center text-2xl font-bold">
+                      {day}
                     </div>
                   </div>
 
@@ -153,7 +156,7 @@ export default function CalendarEvent() {
             events={events}
             startAccessor="start"
             endAccessor="end"
-            style={{ height: 500 }}
+            style={{height: 500 }}
           />
         </div>
       </div>
@@ -198,7 +201,7 @@ export default function CalendarEvent() {
               <div className="flex justify-end">
                 <button
                   onClick={handleAddEvent}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                  className="bg-green-900 text-white px-4 py-2 rounded-md hover:bg-green-700"
                 >
                   Add Event
                 </button>
