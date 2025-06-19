@@ -20,7 +20,7 @@ const Layout = () => {
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-64 bg-green-900	 text-white flex flex-col h-full">
+      <div className="w-64 bg-mainColor	 text-white flex flex-col h-full">
         {/* Title */}
         <div className="p-4 text-xl font-bold border-b border-gray-700">
           Admin Dashboard

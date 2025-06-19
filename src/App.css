@@ -1,11 +1,11 @@
 /* Highlight today's date cell in the calendar */
 .rbc-today {
-  background-color: #1B622880 !important; /* Tailwind's yellow-100 equivalent */
+  background-color: #125648B2 !important; /* Tailwind's yellow-100 equivalent */
 }
 
 /* Style for calendar events */
 .rbc-event {
-  background-color: #1B6228B2 !important; /* Matches Tailwind's gray-700 */
+  background-color: #125648B2 !important; /* Matches Tailwind's gray-700 */
   color: white !important;
   border: none !important;
   border-radius: 0.375rem !important; /* rounded-md in Tailwind */

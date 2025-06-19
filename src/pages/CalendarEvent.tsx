@@ -75,9 +75,18 @@ export default function CalendarEvent() {
 
   return (
     <div className="p-6">
-      <h2 className="text-4xl font-poppins font-bold">Calendar Events</h2>
-      <div className="flex justify-between items-center mt-14">
-        <div className="mb-2 text-center text-gray-700 border border-gray-700 px-4 py-2 rounded">
+      <div className="flex justify-between items-center mb-5 bg-mainColor ">
+        <h2 className="text-4xl font-poppins font-bold text-white">
+          Calendar Events
+        </h2>
+
+        <button className="w-10 h-10 bg-white text-bgColor rounded-full flex items-center justify-center font-bold shadow hover:bg-gray-200">
+          P
+        </button>
+      </div>
+
+      <div className="flex justify-between items-center mt-10">
+        <div className=" text-center text-gray-700 border border-gray-700 px-4 py-2 rounded">
           Total Events:
           <div className="font-bold">{events.length}</div>
         </div>
@@ -111,11 +120,11 @@ export default function CalendarEvent() {
                 >
                   {/* Date Box */}
                   <div className="w-20 h-24 rounded-md border border-gray-400 overflow-hidden shadow-md">
-                    <div className="h-1/2 bg-green-600 text-white flex items-center justify-center text-sm font-bold uppercase">
+                    <div className="h-1/2 bg-bgColor text-white flex items-center justify-center text-sm font-bold uppercase">
                       {month}
                     </div>
 
-                    <div className="h-1/2 bg-white text-green-600 flex items-center justify-center text-2xl font-bold">
+                    <div className="h-1/2 bg-white text-bgColor flex items-center justify-center text-2xl font-bold">
                       {day}
                     </div>
                   </div>
@@ -156,7 +165,7 @@ export default function CalendarEvent() {
             events={events}
             startAccessor="start"
             endAccessor="end"
-            style={{height: 500 }}
+            style={{ height: 500 }}
           />
         </div>
       </div>
@@ -201,7 +210,7 @@ export default function CalendarEvent() {
               <div className="flex justify-end">
                 <button
                   onClick={handleAddEvent}
-                  className="bg-green-900 text-white px-4 py-2 rounded-md hover:bg-green-700"
+                  className="bg-bgColor text-white px-4 py-2 rounded-md hover:bg-green-700"
                 >
                   Add Event
                 </button>

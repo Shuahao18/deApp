@@ -1,97 +1,98 @@
-import React, { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../Firebase";
-import Sidebar from "../components/Layout";
+  import React, { useEffect, useState } from "react";
+  import { collection, getDocs } from "firebase/firestore";
+  import { db } from "../Firebase";
 
-interface EventType {
-  id?: string;
-  title: string;
-  start: Date;
-  end: Date;
-}
+  interface EventType {
+    id?: string;
+    title: string;
+    start: Date;
+    end: Date;
+    description?: string;
+  }
 
-export default function Dashboard() {
-  const [events, setEvents] = useState<EventType[]>([]);
+  export default function Dashboard() {
+    const [events, setEvents] = useState<EventType[]>([]);
 
-  // Fetch events on mount
-  useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "events"));
-        const eventsFromDB = querySnapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            title: data.title,
-            start: new Date(data.start.seconds * 500),
-            end: new Date(data.end.seconds * 500),
-          };
-        });
-        setEvents(eventsFromDB);
-      } catch (error) {
-        console.error("Error fetching events:", error);
-      }
-    };
-    fetchEvents();
-  }, []);
+    useEffect(() => {
+      const fetchEvents = async () => {
+        try {
+          const querySnapshot = await getDocs(collection(db, "events"));
+          const eventsFromDB = querySnapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              title: data.title,
+              start: new Date(data.start.seconds * 1000),
+              end: new Date(data.end.seconds * 1000),
+              description: data.description || "",
+            };
+          });
+          setEvents(eventsFromDB);
+        } catch (error) {
+          console.error("Error fetching events:", error);
+        }
+      };
+      fetchEvents();
+    }, []);
 
-  return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Main Content */}
-      <div className="flex-1 p-6 grid grid-cols-3 gap-4 overflow-y-auto">
-        <div className="col-span-2 grid grid-rows-2 gap-4">
-          {/* HOA Stats */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h3 className="text-lg font-bold mb-4">HOA Member Stats</h3>
-            <div className="grid grid-cols-4 gap-4 text-center">
-              <div className="bg-blue-100 text-blue-800 p-4 rounded-lg">
-                <p className="text-sm">Total</p>
-                <p className="text-2xl font-semibold">200</p>
-              </div>
-              <div className="bg-green-100 text-green-800 p-4 rounded-lg">
-                <p className="text-sm">Active</p>
-                <p className="text-2xl font-semibold">150</p>
-              </div>
-              <div className="bg-red-100 text-red-800 p-4 rounded-lg">
-                <p className="text-sm">Inactive</p>
-                <p className="text-2xl font-semibold">30</p>
-              </div>
-              <div className="bg-yellow-100 text-yellow-800 p-4 rounded-lg">
-                <p className="text-sm">New</p>
-                <p className="text-2xl font-semibold">20</p>
-              </div>
-            </div>
-          </div>
+    return (
+      <div className="min-h-screen bg-gray-100 p-6">
+      <h1 className="text-2xl font-bold mb-6 text-[#00695C]">Admin Dashboard</h1>
 
-          {/* Event List */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h3 className="text-lg font-bold mb-4">Event List</h3>
-            
-              <p>No events available.</p>
-  
-          </div>
+      {/* Top Stats Row */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="flex-1 min-w-[150px] bg-white p-4 shadow rounded">
+          <h2 className="text-center font-semibold">Total members</h2>
+        </div>
+        <div className="flex-1 min-w-[150px] bg-white p-4 shadow rounded">
+          <h2 className="text-center font-semibold">Active</h2>
+        </div>
+        <div className="flex-1 min-w-[150px] bg-white p-4 shadow rounded">
+          <h2 className="text-center font-semibold">Inactive</h2>
+        </div>
+        <div className="flex-1 min-w-[150px] bg-white p-4 shadow rounded">
+          <h2 className="text-center font-semibold">New members</h2>
+        </div>
+        <div className="flex-1 min-w-[150px] bg-white p-4 shadow rounded">
+          <h2 className="text-center font-semibold">Current HOA Account Balance</h2>
+        </div>
+      </div>
+
+      {/* Main Content Row */}
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Left content space — optional or empty for now */}
+        <div className="flex-1">
+          {/* You can put charts/tables here later */}
         </div>
 
-        {/* Calendar Box */}
-        <div className="bg-white rounded-xl shadow p-6">
-          <h3 className="text-lg font-bold mb-4">Event Calendar</h3>
-          {events.length === 0 ? (
-              <p>No events available.</p>
-            ) : (
-              <ul className="list-disc pl-4">
-                {events.map((event) => (
-                  <p key={event.id} className="mb-2">
-                    <span className="font-semibold">{event.title}</span> —{" "}
-                    <span className="text-gray-600">
-                      {event.start.toLocaleString()} to {event.end.toLocaleString()}
-                    </span>
-                  </p>
-                ))}
-              </ul>
-            )}
+        {/* Upcoming Events Panel */}
+        <div className="w-full lg:w-[350px] bg-[#333] text-white rounded shadow">
+          <div className="p-4 border-b border-gray-600 flex items-center gap-2">
+            <i className="fas fa-calendar-alt"></i>
+            <h2 className="text-lg font-semibold">Upcoming Events</h2>
+          </div>
+
+          <div className="p-4 max-h-[400px] overflow-y-auto bg-white text-black">
+            {/* Sample Event */}
+            {[
+              { date: 'JAN 05', title: 'Meeting', time: '8:30 AM - 10:00 AM' },
+              { date: 'JAN 31', title: 'Update Meeting', time: '1:30 PM - 2:30 PM' },
+              { date: 'FEB 05', title: 'Meeting', time: '3:00 PM - 4:00 PM' },
+              { date: 'FEB 31', title: 'Update Meeting', time: '1:30 PM - 2:30 PM' },
+            ].map((event, index) => (
+              <div key={index} className="flex gap-4 py-3 border-b border-gray-300">
+                <div className="bg-gray-100 text-center px-3 py-2 rounded font-bold text-sm text-[#00695C]">
+                  {event.date.split(' ')[0]} <br /> {event.date.split(' ')[1]}
+                </div>
+                <div>
+                  <h3 className="font-semibold">{event.title}</h3>
+                  <p className="text-sm text-gray-600">{event.time}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        
       </div>
     </div>
   );
-}
+};
