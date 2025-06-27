@@ -7,6 +7,7 @@ import Layout from './components/Layout';
 import ErrorHandler from './pages/Diva';
 import CalendarEvent from './pages/CalendarEvent';
 import AdminLogin from './components/AdminLogin';
+import Expenses from './pages/Expenses';
 import ProtectedRoute from './components/Protectedroute';
 import "./App.css"; // make sure this is in your main file
 
@@ -26,6 +27,7 @@ const router = createHashRouter([
           { path: 'dashboard', element: <Dashboard /> },
           { path: 'members/contribution', element: <Contribution /> },
           { path: 'calendarEvent', element: <CalendarEvent /> },
+          { path: 'members/expenses', element: <Expenses /> },
           { path: '', element: <Navigate to="dashboard" replace /> }, // Empty path redirects to dashboard
           { path: '*', element: <Navigate to="dashboard" replace /> }, // 404 fallback
         ],

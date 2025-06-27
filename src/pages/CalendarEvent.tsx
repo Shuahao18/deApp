@@ -75,8 +75,8 @@ export default function CalendarEvent() {
 
   return (
      <div className="">
-     <div className="mb-6 border-b border-gray-900">
-        <div className="flex justify-between items-center bg-mainColor p-4  shadow">
+     <div className="mb-6 ">
+        <div className="flex justify-between items-center bg-mainColor p-4 shadow">
           <h2 className="text-4xl font-poppins font-bold text-white">
             Calendar Events
           </h2>
