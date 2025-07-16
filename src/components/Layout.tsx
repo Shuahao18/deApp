@@ -61,7 +61,12 @@ const Layout = () => {
               </div>
             )}
           </div>
-
+           <Link to="/folder" className="block hover:bg-green-800 p-2 rounded">
+            Folder
+          </Link>
+          <Link to="/complaints" className="block hover:bg-green-800 p-2 rounded">
+            Complaints
+          </Link>
           <Link to="/documents" className="block hover:bg-green-800 p-2 rounded">
             Documents
           </Link>
