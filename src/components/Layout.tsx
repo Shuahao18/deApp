@@ -5,7 +5,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "../Firebase"; // Adjust the path based on your project structure
 
 const Layout = () => {
-  const [isMembersOpen, setIsMembersOpen] = useState(false);
+  const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -31,20 +31,19 @@ const Layout = () => {
           <Link to="/dashboard" className="block hover:bg-green-800	 p-2 rounded">
             Dashboard
           </Link>
-          <Link to="/accounting" className="block hover:bg-green-800 p-2 rounded">
-            Accounting
+          <Link to="/calendarEvent" className="block hover:bg-green-800 p-2 rounded">
+            Calendar
           </Link>
-
-          {/* Expandable Members */}
+          
           <div>
             <button
-              onClick={() => setIsMembersOpen(!isMembersOpen)}
+              onClick={() => setIsAccountingOpen(!isAccountingOpen)}
               className="w-full text-left hover:bg-green-800 p-2 rounded flex justify-between items-center"
             >
-              Members
-              <span>{isMembersOpen ? "▾" : "▸"}</span>
+              Accounting
+              <span>{isAccountingOpen ? "▾" : "▸"}</span>
             </button>
-            {isMembersOpen && (
+            {isAccountingOpen && (
               <div className="ml-4 mt-2 space-y-1">
                 <Link
                   to="/members/contribution"
@@ -61,18 +60,18 @@ const Layout = () => {
               </div>
             )}
           </div>
+          <Link to="/member" className="block hover:bg-green-800 p-2 rounded">
+            Member
+          </Link>
+       
            <Link to="/folder" className="block hover:bg-green-800 p-2 rounded">
             Folder
           </Link>
-          <Link to="/complaints" className="block hover:bg-green-800 p-2 rounded">
-            Complaints
-          </Link>
-          <Link to="/documents" className="block hover:bg-green-800 p-2 rounded">
+        
+          {/* <Link to="/documents" className="block hover:bg-green-800 p-2 rounded">
             Documents
-          </Link>
-          <Link to="/calendarEvent" className="block hover:bg-green-800 p-2 rounded">
-            Calendar
-          </Link>
+          </Link> */}
+          
           <Link to="/complaints" className="block hover:bg-green-800 p-2 rounded">
             Complaints
           </Link>
