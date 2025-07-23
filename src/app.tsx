@@ -11,6 +11,7 @@ import Expenses from './pages/Expenses';
 import ProtectedRoute from './components/Protectedroute';
 import Folder from './pages/Folder';
 import Complaints from './pages/Complaints';
+import Posting from './pages/Posting';
 import "./App.css"; // make sure this is in your main file
 
 const router = createHashRouter([
@@ -32,7 +33,8 @@ const router = createHashRouter([
           { path: 'members/expenses', element: <Expenses /> },
           { path: 'folder', element: <Folder /> },
           { path: 'complaints', element: <Complaints /> },
-
+          { path: 'posting', element: <Posting /> },
+          
 
           { path: '', element: <Navigate to="dashboard" replace /> }, // Empty path redirects to dashboard
           { path: '*', element: <Navigate to="dashboard" replace /> }, // 404 fallback

@@ -1,4 +1,4 @@
-import React, { ReactNode, ButtonHTMLAttributes } from "react";
+import React, { ReactNode, ButtonHTMLAttributes, useState, useRef, useEffect } from "react";
 import {
   Download,
   File,
@@ -6,6 +6,7 @@ import {
   Search,
   Star,
   Trash2,
+  Edit3,
 } from "lucide-react";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -34,6 +35,25 @@ const Button: React.FC<ButtonProps> = ({
 };
 
 const FoldersPage: React.FC = () => {
+  const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const toggleMenu = (index: number) => {
+    setOpenMenuIndex(openMenuIndex === index ? null : index);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuIndex(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       <main className="bg-gray-100">
@@ -73,7 +93,7 @@ const FoldersPage: React.FC = () => {
                   key={n}
                   className="min-w-[200px] bg-gray-100 p-3 rounded border text-sm"
                 >
-                  <div className="font-medium">Folder no. 1</div>
+                  <div className="font-medium">Folder no. {n}</div>
                   <div className="text-xs text-gray-500">June 20, 2025</div>
                   <div className="flex justify-end mt-2">
                     <MoreVertical className="w-4 h-4 text-gray-500" />
@@ -101,12 +121,32 @@ const FoldersPage: React.FC = () => {
                   </div>
                   <div>June 20, 2025</div>
                   <div>{i === 3 ? "1.23 gb" : i === 2 ? "2 mb" : "300 kb"}</div>
-                  <div className="text-right flex items-center justify-end gap-2">
+                  <div className="text-right flex items-center justify-end gap-2 relative">
                     <span>Folder no. 1</span>
-                    <Download className="w-4 h-4 cursor-pointer" />
-                    <Star className="w-4 h-4 cursor-pointer" />
-                    <Trash2 className="w-4 h-4 cursor-pointer" />
-                    <MoreVertical className="w-4 h-4 cursor-pointer" />
+                    <div ref={menuRef}>
+                      <MoreVertical
+                        className="w-4 h-4 cursor-pointer"
+                        onClick={() => toggleMenu(i)}
+                      />
+                      {openMenuIndex === i && (
+                        <div className="absolute top-full right-0 mt-2 bg-white border rounded shadow z-10 p-2">
+                          <div className="flex items-center gap-4">
+                            <span title="Download">
+                              <Download className="w-5 h-5 cursor-pointer hover:text-blue-600" />
+                            </span>
+                            <span title="Star">
+                              <Star className="w-5 h-5 cursor-pointer hover:text-yellow-500" />
+                            </span>
+                            <span title="Edit">
+                              <Edit3 className="w-5 h-5 cursor-pointer hover:text-green-500" />
+                            </span>
+                            <span title="Delete">
+                              <Trash2 className="w-5 h-5 text-red-500 cursor-pointer hover:text-red-700" />
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
