@@ -12,6 +12,8 @@ import ProtectedRoute from './components/Protectedroute';
 import Folder from './pages/Folder';
 import Complaints from './pages/Complaints';
 import Posting from './pages/Posting';
+import MemAssoc from './pages/members/MemAssoc';
+import AccReg from './pages/members/AccReg';
 import "./App.css"; // make sure this is in your main file
 
 const router = createHashRouter([
@@ -28,13 +30,14 @@ const router = createHashRouter([
         errorElement: <ErrorHandler />,
         children: [
           { path: 'dashboard', element: <Dashboard /> },
-          { path: 'members/contribution', element: <Contribution /> },
+          { path: 'contribution', element: <Contribution /> },
           { path: 'calendarEvent', element: <CalendarEvent /> },
           { path: 'members/expenses', element: <Expenses /> },
           { path: 'folder', element: <Folder /> },
           { path: 'complaints', element: <Complaints /> },
           { path: 'posting', element: <Posting /> },
-          
+          { path: 'members/memAssoc', element: <MemAssoc />},
+          { path: 'members/accReg', element: <AccReg />},
 
           { path: '', element: <Navigate to="dashboard" replace /> }, // Empty path redirects to dashboard
           { path: '*', element: <Navigate to="dashboard" replace /> }, // 404 fallback

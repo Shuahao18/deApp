@@ -6,6 +6,7 @@ import { auth } from "../Firebase"; // Adjust the path based on your project str
 
 const Layout = () => {
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
+  const [isMembersOpen, setIsMembersOpen] = useState(false);
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -20,7 +21,7 @@ const Layout = () => {
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-64 bg-mainColor	 text-white flex flex-col h-full">
+      <div className="w-64 bg-mainColor text-white flex flex-col h-full">
         {/* Title */}
         <div className="p-4 text-xl font-bold border-b border-gray-700">
           Admin Dashboard
@@ -28,13 +29,14 @@ const Layout = () => {
 
         {/* Scrollable menu section */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <Link to="/dashboard" className="block hover:bg-green-800	 p-2 rounded">
+          <Link to="/dashboard" className="block hover:bg-green-800 p-2 rounded">
             Dashboard
           </Link>
           <Link to="/calendarEvent" className="block hover:bg-green-800 p-2 rounded">
             Calendar
           </Link>
-          
+
+          {/* Accounting Dropdown */}
           <div>
             <button
               onClick={() => setIsAccountingOpen(!isAccountingOpen)}
@@ -60,29 +62,47 @@ const Layout = () => {
               </div>
             )}
           </div>
-          <Link to="/member" className="block hover:bg-green-800 p-2 rounded">
-            Member
-          </Link>
-       
-           <Link to="/folder" className="block hover:bg-green-800 p-2 rounded">
+
+          {/* Members Dropdown */}
+          <div>
+            <button
+              onClick={() => setIsMembersOpen(!isMembersOpen)}
+              className="w-full text-left hover:bg-green-800 p-2 rounded flex justify-between items-center"
+            >
+              Members
+              <span>{isMembersOpen ? "▾" : "▸"}</span>
+            </button>
+            {isMembersOpen && (
+              <div className="ml-4 mt-2 space-y-1">
+                <Link
+                  to="/members/memAssoc"
+                  className="block text-sm hover:bg-green-800 p-2 rounded"
+                >
+                  Member Association
+                </Link>
+                <Link
+                  to="/members/accReg"
+                  className="block text-sm hover:bg-green-800 p-2 rounded"
+                >
+                  Account Registration
+                </Link>
+                
+              </div>
+            )}
+          </div>
+
+          {/* Static Links */}
+          <Link to="/folder" className="block hover:bg-green-800 p-2 rounded">
             Folder
           </Link>
-        
-          {/* <Link to="/documents" className="block hover:bg-green-800 p-2 rounded">
-            Documents
-          </Link> */}
-          
           <Link to="/complaints" className="block hover:bg-green-800 p-2 rounded">
             Complaints
           </Link>
-           <Link to="/posting" className="block hover:bg-green-800 p-2 rounded">
+          <Link to="/posting" className="block hover:bg-green-800 p-2 rounded">
             Posting
           </Link>
           <Link to="/announcement" className="block hover:bg-green-800 p-2 rounded">
             Announcement
-          </Link>
-          <Link to="/posting" className="block hover:bg-green-800 p-2 rounded">
-            Posting
           </Link>
           <Link to="/request" className="block hover:bg-green-800 p-2 rounded">
             Request
