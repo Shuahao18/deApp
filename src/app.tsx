@@ -12,8 +12,8 @@ import ProtectedRoute from './components/Protectedroute';
 import Folder from './pages/Folder';
 import Complaints from './pages/Complaints';
 import Posting from './pages/Posting';
-import MemAssoc from './pages/members/MemAssoc';
-import AccReg from './pages/members/AccReg';
+import MemAssoc from './pages/Members/MemAssoc';
+import AccReg from './pages/Members/AccReg';
 import "./App.css"; // make sure this is in your main file
 
 const router = createHashRouter([

@@ -122,7 +122,9 @@ export default function Dashboard() {
               ? timestamp.toDate()
               : new Date(timestamp.seconds * 1000);
 
-          return date.toLocaleString("default", { month: "short" }).toUpperCase();
+          return date
+            .toLocaleString("default", { month: "short" })
+            .toUpperCase();
         };
 
         collectionsSnap.forEach((doc) => {
@@ -206,7 +208,9 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="text-right">
-            <p className="text-xl font-semibold text-gray-800">{formattedTime}</p>
+            <p className="text-xl font-semibold text-gray-800">
+              {formattedTime}
+            </p>
             <p className="text-sm text-gray-500">{formattedDate}</p>
           </div>
         </div>
@@ -266,7 +270,9 @@ export default function Dashboard() {
                     {month.toUpperCase()} <br /> {day}
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-800">{event.title}</h3>
+                    <h3 className="font-semibold text-gray-800">
+                      {event.title}
+                    </h3>
                     <p className="text-sm text-gray-600">{`${start} - ${end}`}</p>
                   </div>
                 </div>
@@ -279,7 +285,9 @@ export default function Dashboard() {
       {/* Bottom Section */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
         <div className="bg-white p-4 rounded shadow col-span-1">
-          <h2 className="font-semibold text-gray-700 mb-2">Traffic Acquisition</h2>
+          <h2 className="font-semibold text-gray-700 mb-2">
+            Traffic Acquisition
+          </h2>
           <p className="text-sm text-gray-500">[Pie chart coming soon]</p>
         </div>
         <div className="bg-white p-4 rounded shadow col-span-1">
@@ -292,7 +300,9 @@ export default function Dashboard() {
           <p className="text-sm text-gray-500">No current projects</p>
         </div>
         <div className="bg-white p-4 rounded shadow col-span-1">
-          <h2 className="font-semibold text-gray-700 mb-2">Fully Paid Members</h2>
+          <h2 className="font-semibold text-gray-700 mb-2">
+            Fully Paid Members
+          </h2>
           <p className="text-sm">29 members</p>
           <p className="text-sm text-gray-500">Month: Jan</p>
         </div>
@@ -343,9 +353,10 @@ function FinancialOverview({ data }: { data: any[] }) {
           </LineChart>
         </ResponsiveContainer>
       ) : (
-        <p className="text-gray-500 text-center">No financial data available.</p>
+        <p className="text-gray-500 text-center">
+          No financial data available.
+        </p>
       )}
     </div>
   );
 }
-

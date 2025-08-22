@@ -29,10 +29,16 @@ const Layout = () => {
 
         {/* Scrollable menu section */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <Link to="/dashboard" className="block hover:bg-green-800 p-2 rounded">
+          <Link
+            to="/dashboard"
+            className="block hover:bg-green-800 p-2 rounded"
+          >
             Dashboard
           </Link>
-          <Link to="/calendarEvent" className="block hover:bg-green-800 p-2 rounded">
+          <Link
+            to="/calendarEvent"
+            className="block hover:bg-green-800 p-2 rounded"
+          >
             Calendar
           </Link>
 
@@ -86,7 +92,6 @@ const Layout = () => {
                 >
                   Account Registration
                 </Link>
-                
               </div>
             )}
           </div>
@@ -95,13 +100,19 @@ const Layout = () => {
           <Link to="/folder" className="block hover:bg-green-800 p-2 rounded">
             Folder
           </Link>
-          <Link to="/complaints" className="block hover:bg-green-800 p-2 rounded">
+          <Link
+            to="/complaints"
+            className="block hover:bg-green-800 p-2 rounded"
+          >
             Complaints
           </Link>
           <Link to="/posting" className="block hover:bg-green-800 p-2 rounded">
             Posting
           </Link>
-          <Link to="/announcement" className="block hover:bg-green-800 p-2 rounded">
+          <Link
+            to="/announcement"
+            className="block hover:bg-green-800 p-2 rounded"
+          >
             Announcement
           </Link>
           <Link to="/request" className="block hover:bg-green-800 p-2 rounded">

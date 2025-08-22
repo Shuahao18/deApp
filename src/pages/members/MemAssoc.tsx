@@ -1,5 +1,8 @@
-import React, { useState, ReactNode, ButtonHTMLAttributes } from "react";
+import React, { useState, useEffect, ReactNode, ButtonHTMLAttributes } from "react";
 import { FiSearch, FiDownload, FiEdit2, FiTrash2, FiMoreVertical, FiX, FiEye, FiEyeOff } from "react-icons/fi";
+import { auth, db } from "../../Firebase";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { collection, getDocs, setDoc, doc } from "firebase/firestore";
 
 /* ---------------- Button ---------------- */
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -20,9 +23,7 @@ const Button: React.FC<ButtonProps> = ({ variant = "default", className = "", ch
   );
 };
 
-/* ------------- Floating input ------------- */
-/** Label is left-aligned and vertically centered inside the box when empty.
- *  On focus/has value, label floats to the top-left and shrinks. */
+/* ------------- Floating Input ------------- */
 type BaseFieldProps = {
   id: string;
   label: string;
@@ -40,13 +41,11 @@ const FloatingInput: React.FC<BaseFieldProps & { type?: string; right?: ReactNod
       type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder=" " /* single space is key for peer-placeholder-shown */
+      placeholder=" "
       className="peer w-full h-16 rounded-xl border-2 border-gray-400 px-4 pt-4 pb-2 outline-none
                  focus:border-[#006C5E] transition"
     />
-    {/* right icon (e.g., eye) */}
     {right && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">{right}</span>}
-
     <label
       htmlFor={id}
       className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all
@@ -76,8 +75,7 @@ const FloatingSelect: React.FC<BaseFieldProps & { options: string[] }> = ({
     </select>
     <label
       htmlFor={id}
-      className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all
-                 top-2 text-xs"
+      className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all top-2 text-xs"
     >
       {label}{required && <span className="text-red-600"> *</span>}
     </label>
@@ -89,15 +87,7 @@ const MemAssoc: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const members = [
-    { no: 1, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "PerryMBridges@jourrapide.com", status: "Active" },
-    { no: 2, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "PerryMBridges@jourrapide.com", status: "Active" },
-    { no: 3, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "", status: "Inactive" },
-    { no: 4, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "", status: "Inactive" },
-    { no: 5, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "PerryMBridges@jourrapide.com", status: "New" },
-    { no: 6, accNo: "00101", name: "Freddie L. Allen", address: "2436 Main Street, Springfield, IL 62704, United States", contact: "704-727-8314", email: "PerryMBridges@jourrapide.com", status: "New" },
-  ];
+  const [members, setMembers] = useState<any[]>([]);
 
   const statusColors: Record<string, string> = {
     Active: "bg-green-500 text-white",
@@ -105,13 +95,72 @@ const MemAssoc: React.FC = () => {
     New: "bg-yellow-400 text-black",
   };
 
-  /* form state just to demo the floating fields */
   const [f, setF] = useState({
     surname: "", firstname: "", middlename: "",
     dob: "", address: "", contact: "", email: "",
     civilStatus: "Single", role: "Member",
     password: "", confirm: "",
   });
+
+  // 🔹 Fetch members from Firestore
+  const fetchMembers = async () => {
+    const snapshot = await getDocs(collection(db, "members"));
+    const data = snapshot.docs.map((docSnap, idx) => ({
+      id: docSnap.id,
+      no: idx + 1,
+      ...docSnap.data(),
+    }));
+    setMembers(data);
+  };
+
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  // 🔹 Create new member
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (f.password !== f.confirm) {
+      alert("Passwords do not match!");
+      return;
+    }
+
+    try {
+      // 1. Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, f.email, f.password);
+      const user = userCredential.user;
+
+      // 2. Save user info in Firestore
+      await setDoc(doc(db, "members", user.uid), {
+        surname: f.surname,
+        firstname: f.firstname,
+        middlename: f.middlename,
+        dob: f.dob,
+        address: f.address,
+        contact: f.contact,
+        email: f.email,
+        civilStatus: f.civilStatus,
+        role: f.role,
+        status: "Active",
+        createdAt: new Date(),
+        createdBy: auth.currentUser?.uid,
+      });
+
+      alert("Member account created!");
+      setShowModal(false);
+      setF({
+        surname: "", firstname: "", middlename: "",
+        dob: "", address: "", contact: "", email: "",
+        civilStatus: "Single", role: "Member",
+        password: "", confirm: "",
+      });
+
+      fetchMembers(); // refresh list
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -146,27 +195,29 @@ const MemAssoc: React.FC = () => {
           <table className="w-full text-sm">
             <thead className="bg-gray-200">
               <tr>
-                <th className="p-3 text-left font-semibold">No.</th>
-                <th className="p-3 text-left font-semibold">Acc. No.</th>
-                <th className="p-3 text-left font-semibold">Name</th>
-                <th className="p-3 text-left font-semibold">Address</th>
-                <th className="p-3 text-left font-semibold">Contact No.</th>
-                <th className="p-3 text-left font-semibold">Email Address</th>
-                <th className="p-3 text-left font-semibold">Status</th>
+                <th className="p-3">No.</th>
+                <th className="p-3">Surname</th>
+                <th className="p-3">First Name</th>
+                <th className="p-3">Middle</th>
+                <th className="p-3">Address</th>
+                <th className="p-3">Email</th>
+                <th className="p-3">Status</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
-                <tr key={m.no} className="border-b hover:bg-gray-50">
+              {members.map((m: any) => (
+                <tr key={m.id} className="border-b hover:bg-gray-50">
                   <td className="p-3">{m.no}</td>
-                  <td className="p-3">{m.accNo}</td>
-                  <td className="p-3">{m.name}</td>
+                  <td className="p-3">{m.surname}</td>
+                  <td className="p-3">{m.firstname}</td>
+                  <td className="p-3">{m.middlename}</td>
                   <td className="p-3">{m.address}</td>
-                  <td className="p-3">{m.contact}</td>
-                  <td className="p-3">{m.email || <span className="text-gray-400">—</span>}</td>
+                  <td className="p-3">{m.email}</td>
                   <td className="p-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[m.status]}`}>{m.status}</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[m.status]}`}>
+                      {m.status}
+                    </span>
                   </td>
                   <td className="p-3 flex gap-2">
                     <button className="p-1 rounded hover:bg-gray-200 text-gray-600"><FiEdit2 size={14} /></button>
@@ -178,7 +229,7 @@ const MemAssoc: React.FC = () => {
             </tbody>
           </table>
 
-          {/* Footer buttons */}
+          {/* Footer */}
           <div className="flex justify-end gap-3 px-4 py-3 border-t bg-gray-50">
             <Button variant="outline">Acc. details</Button>
             <Button variant="default" onClick={() => setShowModal(true)}>+ Create Acc.</Button>
@@ -186,7 +237,7 @@ const MemAssoc: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal with floating-label fields */}
+      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white w-[760px] rounded-lg shadow-lg p-6 relative">
@@ -196,68 +247,26 @@ const MemAssoc: React.FC = () => {
 
             <h2 className="text-xl font-semibold mb-4 text-center border-b pb-3">Create Account</h2>
 
-            <form className="grid grid-cols-2 gap-4">
-              <FloatingInput
-                id="surname" label="Surname" required value={f.surname}
-                onChange={(v) => setF({ ...f, surname: v })}
-              />
-              <FloatingInput
-                id="firstname" label="First Name" required value={f.firstname}
-                onChange={(v) => setF({ ...f, firstname: v })}
-              />
-              <FloatingInput
-                id="middlename" label="Middle Name" value={f.middlename}
-                onChange={(v) => setF({ ...f, middlename: v })}
-              />
-              <FloatingInput
-                id="dob" label="Date of Birth" value={f.dob}
-                onChange={(v) => setF({ ...f, dob: v })} type="date"
-              />
-              <FloatingInput
-                id="address" label="Address" required value={f.address}
-                onChange={(v) => setF({ ...f, address: v })} className="col-span-2"
-              />
-              <FloatingInput
-                id="contact" label="Contact Number" required value={f.contact}
-                onChange={(v) => setF({ ...f, contact: v })}
-              />
-              <FloatingInput
-                id="email" label="Email Address" required value={f.email}
-                onChange={(v) => setF({ ...f, email: v })} type="email"
-              />
-              <FloatingSelect
-                id="civil" label="Civil Status" required value={f.civilStatus}
-                onChange={(v) => setF({ ...f, civilStatus: v })} options={["Single", "Married", "widowed", "separated", "other"]}
-              />
-              <FloatingSelect
-                id="role" label="Role in HOA" required value={f.role}
-                onChange={(v) => setF({ ...f, role: v })} options={["Member","president", "Officer", "vice-president", "treasurer", "secretary", "auditor", "pro"]}
-              />
-
-              {/* Password */}
-              <FloatingInput
-                id="password" label="Password" required value={f.password}
-                onChange={(v) => setF({ ...f, password: v })}
-                type={showPassword ? "text" : "password"}
-                right={
-                  <button type="button" onClick={() => setShowPassword((p) => !p)}>
-                    {showPassword ? <FiEyeOff /> : <FiEye />}
-                  </button>
-                }
-              />
-              {/* Confirm Password */}
-              <FloatingInput
-                id="confirm" label="Confirm Password" required value={f.confirm}
-                onChange={(v) => setF({ ...f, confirm: v })}
-                type={showConfirmPassword ? "text" : "password"}
-                right={
-                  <button type="button" onClick={() => setShowConfirmPassword((p) => !p)}>
-                    {showConfirmPassword ? <FiEyeOff /> : <FiEye />}
-                  </button>
-                }
-              />
-
-              {/* Actions */}
+            <form className="grid grid-cols-2 gap-4" onSubmit={handleCreateAccount}>
+              <FloatingInput id="surname" label="Surname" required value={f.surname} onChange={(v) => setF({ ...f, surname: v })}/>
+              <FloatingInput id="firstname" label="First Name" required value={f.firstname} onChange={(v) => setF({ ...f, firstname: v })}/>
+              <FloatingInput id="middlename" label="Middle Name" value={f.middlename} onChange={(v) => setF({ ...f, middlename: v })}/>
+              <FloatingInput id="dob" label="Date of Birth" value={f.dob} onChange={(v) => setF({ ...f, dob: v })} type="date"/>
+              <FloatingInput id="address" label="Address" required value={f.address} onChange={(v) => setF({ ...f, address: v })} className="col-span-2"/>
+              <FloatingInput id="contact" label="Contact Number" required value={f.contact} onChange={(v) => setF({ ...f, contact: v })}/>
+              <FloatingInput id="email" label="Email Address" required value={f.email} onChange={(v) => setF({ ...f, email: v })} type="email"/>
+              <FloatingSelect id="civil" label="Civil Status" required value={f.civilStatus} onChange={(v) => setF({ ...f, civilStatus: v })} options={["Single","Married","Widowed","Separated","Other"]}/>
+              <FloatingSelect id="role" label="Role in HOA" required value={f.role} onChange={(v) => setF({ ...f, role: v })} options={["Member","President","Vice President","Treasurer","Secretary","Auditor","PRO"]}/>
+              <FloatingInput id="password" label="Password" required value={f.password} onChange={(v) => setF({ ...f, password: v })} type={showPassword ? "text" : "password"} right={
+                <button type="button" onClick={() => setShowPassword((p) => !p)}>
+                  {showPassword ? <FiEyeOff /> : <FiEye />}
+                </button>
+              }/>
+              <FloatingInput id="confirm" label="Confirm Password" required value={f.confirm} onChange={(v) => setF({ ...f, confirm: v })} type={showConfirmPassword ? "text" : "password"} right={
+                <button type="button" onClick={() => setShowConfirmPassword((p) => !p)}>
+                  {showConfirmPassword ? <FiEyeOff /> : <FiEye />}
+                </button>
+              }/>
               <div className="col-span-2 flex justify-end gap-3 mt-2">
                 <Button variant="outline" type="button" onClick={() => setShowModal(false)}>Cancel</Button>
                 <Button variant="default" type="submit">Create Acc.</Button>
