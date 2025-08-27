@@ -19,24 +19,26 @@ const AdminLogin: React.FC = () => {
       const userCred = await signInWithEmailAndPassword(auth, email, password);
       const uid = userCred.user.uid;
 
-      // 🔹 2. Get role from Firestore
-      const docRef = doc(db, "members", uid);
+      // 🔹 2. Get role from Firestore (admins collection)
+      const docRef = doc(db, "Admin", uid); // 👈 collection should be lowercase + plural
       const docSnap = await getDoc(docRef);
 
       if (!docSnap.exists()) {
-        throw new Error("No record found for this account.");
+        // Not registered as admin
+        await signOut(auth);
+        throw new Error("No admin record found for this account.");
       }
 
       const userData = docSnap.data();
 
-      // 🔹 3. Check role
+      // 🔹 3. Check role or flag
       if (userData.accountRole !== "admin") {
         await signOut(auth); // kick them out
         throw new Error("Access denied. Only Admins can log in here.");
       }
 
       // ✅ 4. If Admin, go to dashboard
-      console.log("Welcome Admin:", uid);
+      console.log("✅ Welcome Admin:", uid);
       navigate("/dashboard");
 
     } catch (err: any) {

@@ -118,7 +118,7 @@ const MemAssoc: React.FC = () => {
   }, []);
 
   // 🔹 Create new member
-  const handleCreateAccount = async (e: React.FormEvent) => {
+   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (f.password !== f.confirm) {
       alert("Passwords do not match!");
@@ -126,11 +126,11 @@ const MemAssoc: React.FC = () => {
     }
 
     try {
-      // 1. Create user in Firebase Auth
+      // 1️⃣ Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, f.email, f.password);
       const user = userCredential.user;
 
-      // 2. Save user info in Firestore
+      // 2️⃣ Save user data to Firestore
       await setDoc(doc(db, "members", user.uid), {
         surname: f.surname,
         firstname: f.firstname,
@@ -141,21 +141,13 @@ const MemAssoc: React.FC = () => {
         email: f.email,
         civilStatus: f.civilStatus,
         role: f.role,
-        status: "Active",
-        createdAt: new Date(),
-        createdBy: auth.currentUser?.uid,
+        status: "Active", // All newly created accounts will have a status of "Active"
       });
 
-      alert("Member account created!");
-      setShowModal(false);
-      setF({
-        surname: "", firstname: "", middlename: "",
-        dob: "", address: "", contact: "", email: "",
-        civilStatus: "Single", role: "Member",
-        password: "", confirm: "",
-      });
+      alert("Account created successfully!");
+      setShowModal(false); // Close the modal after successful creation
 
-      fetchMembers(); // refresh list
+      fetchMembers(); // Refresh the list of members
     } catch (err: any) {
       console.error(err);
       alert(err.message);
@@ -215,8 +207,8 @@ const MemAssoc: React.FC = () => {
                   <td className="p-3">{m.address}</td>
                   <td className="p-3">{m.email}</td>
                   <td className="p-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[m.status]}`}>
-                      {m.status}
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[m.status] || "bg-gray-300 text-gray-700"}`}>
+                      {m.status || "Unknown"}
                     </span>
                   </td>
                   <td className="p-3 flex gap-2">
