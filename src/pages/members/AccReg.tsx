@@ -1,50 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Search, Download, Pencil, Trash, MoreVertical } from "lucide-react";
-
-const data = [
-  {
-    no: "001",
-    surname: "Freddie L. Allen",
-    first: "Freddie L. Allen",
-    middle: "Freddie L. Allen",
-    dob: "05/08/1942",
-    address: "2436 Main Street, Springfield, IL 62704, United States",
-    contact: "704-727-8314",
-    email: "PerryMilBridges@jourrapide.com",
-    marital: "Single",
-    role: "Member",
-    password: "********",
-    status: "Active",
-  },
-  {
-    no: "002",
-    surname: "Freddie L. Allen",
-    first: "Freddie L. Allen",
-    middle: "Freddie L. Allen",
-    dob: "05/08/1942",
-    address: "2436 Main Street, Springfield, IL 62704, United States",
-    contact: "704-727-8314",
-    email: "PerryMilBridges@jourrapide.com",
-    marital: "Married",
-    role: "President",
-    password: "********",
-    status: "Active",
-  },
-  {
-    no: "003",
-    surname: "Freddie L. Allen",
-    first: "Freddie L. Allen",
-    middle: "Freddie L. Allen",
-    dob: "05/08/1942",
-    address: "2436 Main Street, Springfield, IL 62704, United States",
-    contact: "704-727-8314",
-    email: "PerryMilBridges@jourrapide.com",
-    marital: "Widowed",
-    role: "Vice President",
-    password: "********",
-    status: "Inactive",
-  },
-];
+import { db } from "../../Firebase"; 
+import { collection, getDocs } from "firebase/firestore";
 
 const statusColors: Record<string, string> = {
   Active: "bg-green-500 text-white",
@@ -53,6 +10,27 @@ const statusColors: Record<string, string> = {
 };
 
 const AccReg = () => {
+  const [members, setMembers] = useState<any[]>([]);
+
+  // 🔹 Fetch members from Firestore
+  const fetchMembers = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "members"));
+      const data = snapshot.docs.map((docSnap, idx) => ({
+        id: docSnap.id,
+        no: String(idx + 1).padStart(3, "0"), // Format account number 001, 002...
+        ...docSnap.data(),
+      }));
+      setMembers(data);
+    } catch (error) {
+      console.error("Error fetching members:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
   return (
     <div className="p-6 bg-white rounded-lg shadow">
       {/* Header */}
@@ -103,25 +81,25 @@ const AccReg = () => {
             </tr>
           </thead>
           <tbody>
-            {data.map((row, i) => (
-              <tr key={i} className="text-gray-700">
+            {members.map((m: any, i: number) => (
+              <tr key={m.id} className="text-gray-700">
                 <td className="p-2 border">{i + 1}</td>
-                <td className="p-2 border">{row.no}</td>
-                <td className="p-2 border">{row.surname}</td>
-                <td className="p-2 border">{row.first}</td>
-                <td className="p-2 border">{row.middle}</td>
-                <td className="p-2 border">{row.dob}</td>
-                <td className="p-2 border">{row.address}</td>
-                <td className="p-2 border">{row.contact}</td>
-                <td className="p-2 border">{row.email}</td>
-                <td className="p-2 border">{row.marital}</td>
-                <td className="p-2 border">{row.role}</td>
-                <td className="p-2 border">{row.password}</td>
+                <td className="p-2 border">{m.no}</td>
+                <td className="p-2 border">{m.surname}</td>
+                <td className="p-2 border">{m.firstname}</td>
+                <td className="p-2 border">{m.middlename}</td>
+                <td className="p-2 border">{m.dob}</td>
+                <td className="p-2 border">{m.address}</td>
+                <td className="p-2 border">{m.contact}</td>
+                <td className="p-2 border">{m.email}</td>
+                <td className="p-2 border">{m.civilStatus}</td>
+                <td className="p-2 border">{m.role}</td>
+                <td className="p-2 border">********</td>
                 <td className="p-2 border">
                   <span
-                    className={`px-2 py-1 rounded-full text-xs ${statusColors[row.status]}`}
+                    className={`px-2 py-1 rounded-full text-xs ${statusColors[m.status] || "bg-gray-300 text-gray-700"}`}
                   >
-                    {row.status}
+                    {m.status || "Unknown"}
                   </span>
                 </td>
                 <td className="p-2 border">
