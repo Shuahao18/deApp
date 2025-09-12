@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getFunctions } from "firebase/functions"; // ✅ import functions
 
 const firebaseConfig = {
   apiKey: "AIzaSyCgBbhvk9TANfxq81bWcPsnwnfVoKcHRfc",
@@ -9,12 +10,12 @@ const firebaseConfig = {
   projectId: "hoa-appp",
   storageBucket: "hoa-appp.firebasestorage.app",
   messagingSenderId: "55802883937",
-  appId: "1:55802883937:web:ce7e8a87acaee625275f20"
+  appId: "1:55802883937:web:ce7e8a87acaee625275f20",
 };
-
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const functions = getFunctions(app); // ✅ add this
 
-export { db, auth };
+export { db, auth, functions };

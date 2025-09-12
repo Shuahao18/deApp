@@ -109,12 +109,10 @@ const Layout = () => {
           <Link to="/posting" className="block hover:bg-green-800 p-2 rounded">
             Posting
           </Link>
-          <Link
-            to="/announcement"
-            className="block hover:bg-green-800 p-2 rounded"
-          >
-            Announcement
+           <Link to="/officials" className="block hover:bg-green-800 p-2 rounded">
+            HOA Officials
           </Link>
+          
           <Link to="/request" className="block hover:bg-green-800 p-2 rounded">
             Request
           </Link>

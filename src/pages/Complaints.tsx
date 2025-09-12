@@ -23,7 +23,7 @@ const Complaints: React.FC = () => {
       if (user) {
         try {
           // 🔑 Check if user is admin
-          const adminDocRef = doc(db, "Admin", user.uid);
+          const adminDocRef = doc(db, "admin", user.uid);
           const adminSnap = await getDoc(adminDocRef);
 
           let snapshot;

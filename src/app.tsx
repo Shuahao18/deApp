@@ -15,6 +15,7 @@ import Posting from './pages/Posting';
 import MemAssoc from './pages/Members/MemAssoc';
 import AccReg from './pages/Members/AccReg';
 import "./App.css"; // make sure this is in your main file
+import OffHoa from './pages/Members/OffHoa';
 
 const router = createHashRouter([
   {
@@ -36,6 +37,8 @@ const router = createHashRouter([
           { path: 'folder', element: <Folder /> },
           { path: 'complaints', element: <Complaints /> },
           { path: 'posting', element: <Posting /> },
+          { path: 'officials', element: <OffHoa /> },
+
           { path: 'members/memAssoc', element: <MemAssoc />},
           { path: 'members/accReg', element: <AccReg />},
 

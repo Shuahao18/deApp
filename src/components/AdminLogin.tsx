@@ -20,7 +20,7 @@ const AdminLogin: React.FC = () => {
       const uid = userCred.user.uid;
 
       // 🔹 2. Get role from Firestore (admins collection)
-      const docRef = doc(db, "Admin", uid); // 👈 collection should be lowercase + plural
+      const docRef = doc(db, "admin", uid); // 👈 collection should be lowercase + plural
       const docSnap = await getDoc(docRef);
 
       if (!docSnap.exists()) {
