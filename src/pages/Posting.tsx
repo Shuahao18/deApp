@@ -6,9 +6,10 @@ import {
   query,
   orderBy,
   onSnapshot,
-  doc, // <--- Add this
-  runTransaction, // <--- Add this
-  increment, // <--- Add this
+  doc,
+  runTransaction,
+  increment,
+  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../Firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -30,8 +31,10 @@ interface Post {
 interface Comment {
   id?: string;
   userId: string;
-  authorName: string;
-  content: string;
+  authorName?: string;
+  user?: string; // old schema
+  content?: string;
+  text?: string; // old schema
   createdAt?: any;
 }
 
@@ -44,6 +47,20 @@ export default function App() {
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
   const [newComment, setNewComment] = useState("");
+
+  // 🔹 Helper to get accountRole if admin, else fallback to displayName
+  const getAuthorLabel = async (uid: string, fallback: string) => {
+    try {
+      const adminDoc = await getDoc(doc(db, "admin", uid));
+      if (adminDoc.exists()) {
+        return adminDoc.data().accountRole || "admin";
+      }
+      return fallback || "HOA Member";
+    } catch (e) {
+      console.error("Error fetching author label:", e);
+      return fallback || "HOA Member";
+    }
+  };
 
   // Track logged-in user
   useEffect(() => {
@@ -69,7 +86,7 @@ export default function App() {
   // Toggle comments view
   const handleViewComments = (postId: string) => {
     if (selectedPostId === postId) {
-      setSelectedPostId(null); // collapse if already open
+      setSelectedPostId(null);
       return;
     }
 
@@ -100,19 +117,20 @@ export default function App() {
     }
 
     try {
-      // Use a Firestore transaction to ensure both operations succeed or fail together.
       const postRef = doc(db, "posts", postId);
 
       await runTransaction(db, async (transaction) => {
-        // Step 1: Add the new comment to the subcollection
+        const authorName = await getAuthorLabel(user.uid, user.displayName);
+
+        // Step 1: Add comment
         await addDoc(collection(db, "posts", postId, "comments"), {
           userId: user.uid,
-          authorName: user.displayName || "HOA Member",
+          authorName, // 👈 admin → accountRole, normal → displayName
           content: newComment,
           createdAt: serverTimestamp(),
         });
 
-        // Step 2: Atomically increment the commentsCount on the parent post document
+        // Step 2: Increment counter
         transaction.update(postRef, {
           commentsCount: increment(1),
         });
@@ -125,7 +143,6 @@ export default function App() {
     }
   };
 
-  // ✅ UI
   return (
     <div className="flex flex-col lg:flex-row gap-6 bg-gray-100 min-h-screen p-6">
       {/* Left Column - Posts */}
@@ -181,8 +198,10 @@ export default function App() {
                   comments[post.id!].map((c) => (
                     <div key={c.id} className="mb-2">
                       <p className="text-sm">
-                        <span className="font-semibold">{c.authorName}:</span>{" "}
-                        {c.content}
+                        <span className="font-semibold">
+                          {c.authorName || c.user}:
+                        </span>{" "}
+                        {c.content || c.text}
                       </p>
                       <p className="text-xs text-gray-400">
                         {c.createdAt?.toDate
