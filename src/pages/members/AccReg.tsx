@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Search, Download, Pencil, Trash, MoreVertical } from "lucide-react";
-import { db } from "../../Firebase"; 
+import { db } from "../../Firebase";
 import { collection, getDocs } from "firebase/firestore";
 
 const statusColors: Record<string, string> = {
@@ -11,6 +11,10 @@ const statusColors: Record<string, string> = {
 
 const AccReg = () => {
   const [members, setMembers] = useState<any[]>([]);
+  
+  // 🔹 Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const membersPerPage = 10;
 
   // 🔹 Fetch members from Firestore
   const fetchMembers = async () => {
@@ -30,6 +34,14 @@ const AccReg = () => {
   useEffect(() => {
     fetchMembers();
   }, []);
+
+  // 🔹 Get current members for the page
+  const indexOfLastMember = currentPage * membersPerPage;
+  const indexOfFirstMember = indexOfLastMember - membersPerPage;
+  const currentMembers = members.slice(indexOfFirstMember, indexOfLastMember);
+  const totalPages = Math.ceil(members.length / membersPerPage);
+
+  const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
   return (
     <div className="p-6 bg-white rounded-lg shadow">
@@ -81,44 +93,71 @@ const AccReg = () => {
             </tr>
           </thead>
           <tbody>
-            {members.map((m: any, i: number) => (
-              <tr key={m.id} className="text-gray-700">
-                <td className="p-2 border">{i + 1}</td>
-                <td className="p-2 border">{m.no}</td>
-                <td className="p-2 border">{m.surname}</td>
-                <td className="p-2 border">{m.firstname}</td>
-                <td className="p-2 border">{m.middlename}</td>
-                <td className="p-2 border">{m.dob}</td>
-                <td className="p-2 border">{m.address}</td>
-                <td className="p-2 border">{m.contact}</td>
-                <td className="p-2 border">{m.email}</td>
-                <td className="p-2 border">{m.civilStatus}</td>
-                <td className="p-2 border">{m.role}</td>
-                <td className="p-2 border">********</td>
-                <td className="p-2 border">
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs ${statusColors[m.status] || "bg-gray-300 text-gray-700"}`}
-                  >
-                    {m.status || "Unknown"}
-                  </span>
-                </td>
-                <td className="p-2 border">
-                  <div className="flex gap-2">
-                    <button className="text-blue-500">
-                      <Pencil size={16} />
-                    </button>
-                    <button className="text-red-500">
-                      <Trash size={16} />
-                    </button>
-                    <button className="text-gray-500">
-                      <MoreVertical size={16} />
-                    </button>
-                  </div>
+            {currentMembers.length > 0 ? (
+              currentMembers.map((m: any, i: number) => (
+                <tr key={m.id} className="text-gray-700">
+                  <td className="p-2 border">{indexOfFirstMember + i + 1}</td>
+                  <td className="p-2 border">{m.no}</td>
+                  <td className="p-2 border">{m.surname}</td>
+                  <td className="p-2 border">{m.firstname}</td>
+                  <td className="p-2 border">{m.middlename}</td>
+                  <td className="p-2 border">{m.dob}</td>
+                  <td className="p-2 border">{m.address}</td>
+                  <td className="p-2 border">{m.contact}</td>
+                  <td className="p-2 border">{m.email}</td>
+                  <td className="p-2 border">{m.civilStatus}</td>
+                  <td className="p-2 border">{m.role}</td>
+                  <td className="p-2 border">********</td>
+                  <td className="p-2 border">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs ${statusColors[m.status] || "bg-gray-300 text-gray-700"}`}
+                    >
+                      {m.status || "Unknown"}
+                    </span>
+                  </td>
+                  <td className="p-2 border">
+                    <div className="flex gap-2">
+                      <button className="text-blue-500">
+                        <Pencil size={16} />
+                      </button>
+                      <button className="text-red-500">
+                        <Trash size={16} />
+                      </button>
+                      <button className="text-gray-500">
+                        <MoreVertical size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={14} className="p-4 text-center text-gray-500">
+                  No members found.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
+      </div>
+
+      {/* 🔹 Pagination Controls */}
+      <div className="flex justify-center mt-4">
+        <nav className="flex items-center space-x-2">
+          {[...Array(totalPages)].map((_, index) => (
+            <button
+              key={index + 1}
+              onClick={() => paginate(index + 1)}
+              className={`px-3 py-1 rounded-md text-sm font-medium ${
+                currentPage === index + 1
+                  ? "bg-gray-800 text-white"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              {index + 1}
+            </button>
+          ))}
+        </nav>
       </div>
     </div>
   );

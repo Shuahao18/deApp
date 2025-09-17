@@ -1,110 +1,140 @@
-// src/pages/HOAOfficials.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MoreVertical } from "lucide-react";
+import { db, storage } from "../../Firebase";
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  query,
+  orderBy,
+} from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-interface Member {
+// --- Interfaces para sa data ---
+interface Candidate {
   id: string;
   name: string;
-  role: string;
-  contact: string;
+  position: string;
+  contactNo: string;
   email: string;
-  dateElected: string;
   termDuration: string;
-  profileImage?: string;
+  photoURL?: string;
 }
 
-const sampleMembers: Member[] = [
-  {
-    id: "1",
-    name: "John Doe",
-    role: "President",
-    contact: "0912-345-6789",
-    email: "john@example.com",
-    dateElected: "2022-01-01",
-    termDuration: "2 years",
-    profileImage: "",
-  },
-  {
-    id: "2",
-    name: "Jane Smith",
-    role: "Vice President",
-    contact: "0917-111-2222",
-    email: "jane@example.com",
-    dateElected: "2023-05-01",
-    termDuration: "2 years",
-    profileImage: "",
-  },
-];
-
+// --- Ang Component mismo ---
 export default function OffHoa() {
-  const [members, setMembers] = useState<Member[]>(sampleMembers);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [formData, setFormData] = useState<Member>({
-    id: "",
+  const [formData, setFormData] = useState({
     name: "",
-    role: "",
-    contact: "",
+    position: "",
+    contactNo: "",
     email: "",
-    dateElected: "",
     termDuration: "",
-    profileImage: "",
+    profileImageFile: null as File | null,
   });
 
-  const [error, setError] = useState<string>("");
+  // Fetching data mula sa Firestore
+  useEffect(() => {
+    if (!db) {
+      console.error("Firestore database is not initialized.");
+      return;
+    }
+    const q = query(collection(db, "candidates"), orderBy("name"));
+    const unsubscribe = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const candidatesList: Candidate[] = [];
+        querySnapshot.forEach((doc) => {
+          candidatesList.push({ id: doc.id, ...doc.data() } as Candidate);
+        });
+        setCandidates(candidatesList);
+      },
+      (error) => {
+        console.error("Error fetching candidates:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
-    setError(""); // clear error when user changes input
+    setError("");
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, profileImage: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      setFormData({ ...formData, profileImageFile: file });
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setError("");
 
-    // Validation: only one President allowed
-    if (
-      formData.role === "President" &&
-      members.some((m) => m.role === "President")
-    ) {
-      setError("Conflict on Assigning role is accord");
+    if (!db || !storage) {
+      setError("Firebase services are not initialized.");
+      setIsSubmitting(false);
       return;
     }
 
-    setMembers([...members, { ...formData, id: Date.now().toString() }]);
-    setFormData({
-      id: "",
-      name: "",
-      role: "",
-      contact: "",
-      email: "",
-      dateElected: "",
-      termDuration: "",
-      profileImage: "",
-    });
-    setError("");
-    setShowModal(false);
+    try {
+      let photoURL = "";
+      if (formData.profileImageFile) {
+        const storageRef = ref(
+          storage,
+          `candidates/${formData.profileImageFile.name}`
+        );
+        const snapshot = await uploadBytes(
+          storageRef,
+          formData.profileImageFile
+        );
+        photoURL = await getDownloadURL(snapshot.ref);
+      }
+
+      // Create a clean object to send to Firestore, excluding the File object
+      const dataToSave = {
+        name: formData.name,
+        position: formData.position,
+        contactNo: formData.contactNo,
+        email: formData.email,
+        termDuration: formData.termDuration,
+        photoURL: photoURL,
+      };
+
+      await addDoc(collection(db, "candidates"), dataToSave);
+
+      // Reset form data after successful submission
+      setFormData({
+        name: "",
+        position: "",
+        contactNo: "",
+        email: "",
+        termDuration: "",
+        profileImageFile: null,
+      });
+
+      setShowModal(false);
+    } catch (err: any) {
+      console.error("Error adding document: ", err);
+      setError("Failed to add member. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="p-6">
-      {/* Header */}
       <h1 className="text-2xl font-semibold mb-6">HOA Board of members</h1>
-
-      {/* Tabs (RESTORED) */}
       <div className="flex gap-4 mb-6 border-b pb-2">
         {[
           "HOA Boards of members",
@@ -126,66 +156,55 @@ export default function OffHoa() {
           + Add members
         </button>
       </div>
-
-      {/* Members Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {members.map((m) => (
+        {candidates.map((c) => (
           <div
-            key={m.id}
+            key={c.id}
             className="flex items-center bg-white shadow-md rounded-xl overflow-hidden"
           >
             <div className="w-1/3 bg-gray-200 h-40 flex items-center justify-center">
-              {m.profileImage ? (
+              {c.photoURL ? (
                 <img
-                  src={m.profileImage}
-                  alt={m.name}
+                  src={c.photoURL}
+                  alt={c.name}
                   className="w-full h-full object-cover"
                 />
               ) : (
                 <span className="text-gray-600 font-medium">+ Add Image</span>
               )}
             </div>
-            <div className="w-2/63 bg-green-800 text-white p-4 relative">
+            <div className="w-2/3 bg-green-800 text-white p-4 relative">
               <button className="absolute top-2 right-2 text-white">
                 <MoreVertical />
               </button>
               <p>
-                <span className="font-semibold">Name:</span> {m.name}
+                <span className="font-semibold">Name:</span> {c.name}
               </p>
               <p>
-                <span className="font-semibold">Role:</span> {m.role}
+                <span className="font-semibold">Position:</span> {c.position}
               </p>
               <p>
-                <span className="font-semibold">Contact:</span> {m.contact}
+                <span className="font-semibold">Contact:</span> {c.contactNo}
               </p>
               <p>
-                <span className="font-semibold">Email:</span> {m.email}
+                <span className="font-semibold">Email:</span> {c.email}
               </p>
               <p>
-                <span className="font-semibold">Date Elected:</span>{" "}
-                {m.dateElected}
-              </p>
-              <p>
-                <span className="font-semibold">Term:</span> {m.termDuration}
+                <span className="font-semibold">Term:</span> {c.termDuration}
               </p>
             </div>
           </div>
         ))}
       </div>
-
-      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-4xl">
             <h2 className="text-xl font-semibold mb-4">Add Member</h2>
-
-            {/* FORM */}
             <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-6">
-              {/* Image Upload */}
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-400 rounded-lg h-64 cursor-pointer">
-                {formData.profileImage ? (
+                {formData.profileImageFile ? (
                   <img
-                    src={formData.profileImage}
+                    src={URL.createObjectURL(formData.profileImageFile)}
                     alt="Preview"
                     className="w-full h-full object-cover rounded-md"
                   />
@@ -201,10 +220,7 @@ export default function OffHoa() {
                   </label>
                 )}
               </div>
-
-              {/* Right Side Inputs */}
               <div className="space-y-4">
-                {/* Name */}
                 <div>
                   <label className="block text-sm font-medium">Name *</label>
                   <input
@@ -216,17 +232,17 @@ export default function OffHoa() {
                     className="w-full border-b border-gray-400 focus:border-green-700 outline-none px-2 py-1"
                   />
                 </div>
-
-                {/* Role */}
                 <div>
                   <label className="block text-sm font-medium">Role in HOA *</label>
                   <select
-                    name="role"
-                    value={formData.role}
+                    name="position"
+                    value={formData.position}
                     onChange={handleChange}
                     required
                     className={`w-full border-b outline-none px-2 py-1 ${
-                      error ? "border-red-500 text-red-600 font-semibold" : "border-gray-400"
+                      error
+                        ? "border-red-500 text-red-600 font-semibold"
+                        : "border-gray-400"
                     }`}
                   >
                     <option value="">Select Role</option>
@@ -239,21 +255,17 @@ export default function OffHoa() {
                     <p className="text-red-500 text-sm mt-1 italic">{error}</p>
                   )}
                 </div>
-
-                {/* Contact */}
                 <div>
                   <label className="block text-sm font-medium">Contact No. *</label>
                   <input
                     type="text"
-                    name="contact"
-                    value={formData.contact}
+                    name="contactNo"
+                    value={formData.contactNo}
                     onChange={handleChange}
                     required
                     className="w-full border-b border-gray-400 focus:border-green-700 outline-none px-2 py-1"
                   />
                 </div>
-
-                {/* Email */}
                 <div>
                   <label className="block text-sm font-medium">Email Address</label>
                   <input
@@ -264,21 +276,6 @@ export default function OffHoa() {
                     className="w-full border-b border-gray-400 focus:border-green-700 outline-none px-2 py-1"
                   />
                 </div>
-
-                {/* Date Elected */}
-                <div>
-                  <label className="block text-sm font-medium">Date Elected *</label>
-                  <input
-                    type="date"
-                    name="dateElected"
-                    value={formData.dateElected}
-                    onChange={handleChange}
-                    required
-                    className="w-full border-b border-gray-400 focus:border-green-700 outline-none px-2 py-1"
-                  />
-                </div>
-
-                {/* Term */}
                 <div>
                   <label className="block text-sm font-medium">Term Duration</label>
                   <input
@@ -291,8 +288,6 @@ export default function OffHoa() {
                   />
                 </div>
               </div>
-
-              {/* Buttons */}
               <div className="col-span-2 flex justify-end gap-3 mt-4">
                 <button
                   type="button"
@@ -303,9 +298,10 @@ export default function OffHoa() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-green-700 text-white px-4 py-2 rounded-md hover:bg-green-800"
+                  disabled={isSubmitting}
+                  className="bg-green-700 text-white px-4 py-2 rounded-md hover:bg-green-800 disabled:bg-gray-400"
                 >
-                  Create Acc.
+                  {isSubmitting ? "Adding..." : "Create Acc."}
                 </button>
               </div>
             </form>
