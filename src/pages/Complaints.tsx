@@ -10,7 +10,13 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "../Firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { FaInbox, FaUserClock, FaCheckCircle, FaTimesCircle, FaRegFile } from 'react-icons/fa';
+import {
+  FaInbox,
+  FaUserClock,
+  FaCheckCircle,
+  FaTimesCircle,
+  FaRegFile,
+} from "react-icons/fa";
 
 interface Complaint {
   id: string;
@@ -25,18 +31,18 @@ interface Complaint {
 
 const getCardProps = (label: string) => {
   switch (label) {
-    case 'Total Complaints':
-      return { icon: FaRegFile, color: 'bg-[#555A6E]' };
-    case 'New Complaints':
-      return { icon: FaInbox, color: 'bg-[#009245]' };
-    case 'Pending Complaints':
-      return { icon: FaUserClock, color: 'bg-[#FFB700]' };
-    case 'Complaints Solved':
-      return { icon: FaCheckCircle, color: 'bg-[#007F5F]' };
-    case 'Rejected Complaints':
-      return { icon: FaTimesCircle, color: 'bg-[#C70039]' };
+    case "Total Complaints":
+      return { icon: FaRegFile, color: "bg-[#555A6E]" };
+    case "New Complaints":
+      return { icon: FaInbox, color: "bg-[#009245]" };
+    case "Pending Complaints":
+      return { icon: FaUserClock, color: "bg-[#FFB700]" };
+    case "Complaints Solved":
+      return { icon: FaCheckCircle, color: "bg-[#007F5F]" };
+    case "Rejected Complaints":
+      return { icon: FaTimesCircle, color: "bg-[#C70039]" };
     default:
-      return { icon: FaRegFile, color: 'bg-gray-500' };
+      return { icon: FaRegFile, color: "bg-gray-500" };
   }
 };
 
@@ -58,7 +64,8 @@ const Complaints: React.FC = () => {
           const adminSnap = await getDoc(adminDocRef);
 
           let snapshot;
-          const isUserAdmin = adminSnap.exists() && adminSnap.data()?.accountRole === "admin";
+          const isUserAdmin =
+            adminSnap.exists() && adminSnap.data()?.accountRole === "admin";
           const complaintsCollection = collection(db, "complaints");
 
           if (isUserAdmin) {
@@ -68,17 +75,30 @@ const Complaints: React.FC = () => {
             );
             snapshot = await getDocs(allComplaintsQuery);
 
-            const newQuery = query(complaintsCollection, where("status", "==", "new"));
-            const pendingQuery = query(complaintsCollection, where("status", "==", "pending"));
-            const solvedQuery = query(complaintsCollection, where("status", "==", "solved"));
-            const rejectedQuery = query(complaintsCollection, where("status", "==", "rejected"));
+            const newQuery = query(
+              complaintsCollection,
+              where("status", "==", "new")
+            );
+            const pendingQuery = query(
+              complaintsCollection,
+              where("status", "==", "pending")
+            );
+            const solvedQuery = query(
+              complaintsCollection,
+              where("status", "==", "solved")
+            );
+            const rejectedQuery = query(
+              complaintsCollection,
+              where("status", "==", "rejected")
+            );
 
-            const [newSnap, pendingSnap, solvedSnap, rejectedSnap] = await Promise.all([
-              getDocs(newQuery),
-              getDocs(pendingQuery),
-              getDocs(solvedQuery),
-              getDocs(rejectedQuery),
-            ]);
+            const [newSnap, pendingSnap, solvedSnap, rejectedSnap] =
+              await Promise.all([
+                getDocs(newQuery),
+                getDocs(pendingQuery),
+                getDocs(solvedQuery),
+                getDocs(rejectedQuery),
+              ]);
 
             setTotalCount(snapshot.size);
             setNewCount(newSnap.size);
@@ -93,12 +113,22 @@ const Complaints: React.FC = () => {
             );
             snapshot = await getDocs(memberQuery);
 
-            const allMemberComplaints = snapshot.docs.map((doc) => doc.data() as Complaint);
+            const allMemberComplaints = snapshot.docs.map(
+              (doc) => doc.data() as Complaint
+            );
             setTotalCount(allMemberComplaints.length);
-            setNewCount(allMemberComplaints.filter((c) => c.status === "new").length);
-            setPendingCount(allMemberComplaints.filter((c) => c.status === "pending").length);
-            setSolvedCount(allMemberComplaints.filter((c) => c.status === "solved").length);
-            setRejectedCount(allMemberComplaints.filter((c) => c.status === "rejected").length);
+            setNewCount(
+              allMemberComplaints.filter((c) => c.status === "new").length
+            );
+            setPendingCount(
+              allMemberComplaints.filter((c) => c.status === "pending").length
+            );
+            setSolvedCount(
+              allMemberComplaints.filter((c) => c.status === "solved").length
+            );
+            setRejectedCount(
+              allMemberComplaints.filter((c) => c.status === "rejected").length
+            );
           }
 
           const data: Complaint[] = snapshot.docs.map((doc) => ({
@@ -118,32 +148,44 @@ const Complaints: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const counts = [totalCount, newCount, pendingCount, solvedCount, rejectedCount];
+  const counts = [
+    totalCount,
+    newCount,
+    pendingCount,
+    solvedCount,
+    rejectedCount,
+  ];
 
   return (
-    <div className="min-h-screen bg-white font-poppins">
-      <main className="bg-gray-100">
-        {/* Top Bar */}
-        <div className="bg-[#006C5E] p-6">
-          <h1 className="text-2xl text-white font-semibold">Complaints</h1>
+    <div className="min-h-screen bg-[#F5F6FA] font-poppins">
+      <main>
+        {/* Top Header */}
+        <div className="bg-[#006C5E] px-6 py-4 shadow">
+          <h1 className="text-xl text-white font-semibold">Complaints</h1>
         </div>
 
         <div className="p-6 space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-5 gap-4">
-            {["Total Complaints", "New Complaints", "Pending Complaints", "Complaints Solved", "Rejected Complaints"].map((label, index) => {
+            {[
+              "Total Complaints",
+              "New Complaints",
+              "Pending Complaints",
+              "Complaints Solved",
+              "Rejected Complaints",
+            ].map((label, index) => {
               const { icon: Icon, color } = getCardProps(label);
               return (
                 <div
                   key={index}
-                  className={`${color} text-white p-4 rounded-md shadow flex flex-col justify-between`}
+                  className={`${color} text-white rounded-md shadow p-4 flex flex-col`}
                 >
-                  <div className="flex items-center justify-between">
-                    <Icon className="text-3xl" />
-                    <div className="text-2xl font-bold">{counts[index]}</div>
+                  <div className="flex justify-between items-center">
+                    <Icon className="text-2xl" />
+                    <span className="text-xl font-bold">{counts[index]}</span>
                   </div>
-                  <div className="text-sm mt-2">{label}</div>
-                  <button className="text-xs underline mt-2 text-white/90 hover:text-white">
+                  <p className="text-sm mt-2">{label}</p>
+                  <button className="mt-3 text-xs font-medium underline text-white/80 hover:text-white">
                     View More
                   </button>
                 </div>
@@ -151,38 +193,47 @@ const Complaints: React.FC = () => {
             })}
           </div>
 
-          {/* Complaint Cards */}
-          <div className="bg-white rounded-md shadow divide-y">
-            <div className="p-4 bg-gray-50 font-bold text-gray-700">New Complaints</div>
-            {complaints.length === 0 ? (
-              <div className="p-4 text-sm text-gray-500">No complaints found.</div>
+          {/* Complaint List */}
+          <div className="bg-white rounded-md shadow">
+            <div className="p-4 border-b text-gray-700 font-semibold">
+              New Complaints
+            </div>
+
+            {loading ? (
+              <div className="p-6 text-sm text-gray-500">Loading...</div>
+            ) : complaints.length === 0 ? (
+              <div className="p-6 text-sm text-gray-500">
+                No complaints found.
+              </div>
             ) : (
               complaints.map((c) => (
-                <div key={c.id} className="p-6 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold text-gray-800">From: {c.name}</div>
-                    <div className="px-3 py-1 text-xs font-medium text-white rounded-full bg-green-500">
-                      {c.status}
-                    </div>
+                <div
+                  key={c.id}
+                  className="p-6 border-b last:border-none hover:bg-gray-50 transition"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-gray-800">
+                      From: {c.name}
+                    </p>
+                    <span className="px-3 py-1 text-xs rounded-full bg-[#009245] text-white font-medium">
+                      New
+                    </span>
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500">
                     Date: {new Date(c.createdAt).toDateString()}
-                  </div>
-                  <div className="text-sm text-gray-600">Address: {c.address}</div>
-                  <div className="text-sm text-gray-600">Contact no#: {c.contact}</div>
-                  <div className="text-sm text-gray-800 mt-4 leading-relaxed">
-                    Complaint: {c.complaint}
-                  </div>
-                  <div className="flex flex-col space-y-2 mt-4">
-                    <button className="py-2 px-4 rounded-md text-white font-medium bg-[#009245] hover:bg-[#007F5F] transition-colors duration-200">
-                      <div className="flex items-center justify-center">
-                        <FaCheckCircle className="mr-2" /> Accept
-                      </div>
+                  </p>
+                  <p className="text-sm text-gray-600">Address: {c.address}</p>
+                  <p className="text-sm text-gray-600">Contact: {c.contact}</p>
+                  <p className="mt-3 text-sm text-gray-800 leading-relaxed">
+                    {c.complaint}
+                  </p>
+
+                  <div className="flex gap-3 mt-4">
+                    <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#009245] hover:bg-[#007F5F] text-sm font-medium transition">
+                      <FaCheckCircle /> Accept
                     </button>
-                    <button className="py-2 px-4 rounded-md text-white font-medium bg-[#C70039] hover:bg-[#B00028] transition-colors duration-200">
-                      <div className="flex items-center justify-center">
-                        <FaTimesCircle className="mr-2" /> Reject
-                      </div>
+                    <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#C70039] hover:bg-[#B00028] text-sm font-medium transition">
+                      <FaTimesCircle /> Reject
                     </button>
                   </div>
                 </div>

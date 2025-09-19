@@ -113,8 +113,8 @@ const Layout = () => {
             HOA Officials
           </Link>
           
-          <Link to="/request" className="block hover:bg-green-800 p-2 rounded">
-            Request
+          <Link to="/election" className="block hover:bg-green-800 p-2 rounded">
+            Election Module
           </Link>
         </div>
 
