@@ -8,10 +8,13 @@ import {
   query,
   onSnapshot,
   getDocs,
-  serverTimestamp,
   Timestamp,
+  doc,
+  deleteDoc,
+  writeBatch,
+  where
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 // The Candidate type reflects the data to be saved to Firestore
 type Candidate = {
@@ -23,10 +26,11 @@ type Candidate = {
 
 // Updated type for the data you want to display on the dashboard
 type DisplayCandidate = {
+  id: string;
   name: string;
   position: string;
   votes: number;
-  photoURL: string; // Added photoURL here
+  photoURL: string;
 };
 
 // Type for election details
@@ -43,12 +47,9 @@ type Election = {
   date: string;
   startTime: string;
   endTime: string;
-  candidates: Candidate[];
-  // NEW: Add a server-side timestamp for the end time
   endTimestamp?: Timestamp;
 };
 
-// --- CORRECTED HELPER FUNCTION TO RESET THE FORM ---
 const resetElectionForm = () => ({
   title: "",
   date: "",
@@ -60,71 +61,44 @@ const resetCandidateForm = () => ({
   name: "",
   position: "President",
   termDuration: "",
-  imageFile: null as File | null, // <-- CORRECTED: Explicitly define the type
+  imageFile: null as File | null,
 });
 
 export default function ElectionDashboard() {
-  const [year, setYear] = useState<number>(2025);
-  const [votingActive, setVotingActive] = useState<boolean>(true);
+  const [year, setYear] = useState<number>(new Date().getFullYear());
+  const [votingActive, setVotingActive] = useState<boolean>(false);
   const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Bagong State para sa logic na gusto mo
-  const [electionAlreadyExists, setElectionAlreadyExists] =
-    useState<boolean>(false);
+  const [electionAlreadyExists, setElectionAlreadyExists] = useState<boolean>(false);
   const [activePosition, setActivePosition] = useState<string>("President");
+  const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
 
-  // State to hold fetched election data
   const [allCandidatesFromFirestore, setAllCandidatesFromFirestore] = useState<
-    Candidate[]
+    DisplayCandidate[]
   >([]);
 
-  // State for election details
   const [electionDetails, setElectionDetails] = useState<ElectionDetails>(
     resetElectionForm()
   );
 
-  // State for the single candidate form
   const [currentCandidate, setCurrentCandidate] = useState<{
     name: string;
     position: string;
     termDuration: string;
-    imageFile: File | null; // <-- CORRECTED: Ensure state type matches the reset function
+    imageFile: File | null;
   }>(resetCandidateForm());
 
-  // Main state to hold the list of candidates added to the form
   const [candidatesList, setCandidatesList] = useState<Candidate[]>([]);
 
-  // State for voter stats
   const [voterStats, setVoterStats] = useState({
     total: 0,
     voted: 0,
     notVoted: 0,
   });
 
-  // Use the fetched election data for the main candidate list
-  const allCandidates: DisplayCandidate[] = useMemo(() => {
-    return allCandidatesFromFirestore.map((candidate) => ({
-      name: candidate.name,
-      position: candidate.position,
-      votes: 0, // In a real app, this would be fetched from the votes subcollection
-      photoURL: candidate.photoURL, // Pass the photoURL here
-    }));
-  }, [allCandidatesFromFirestore]);
-
-  // Filter the candidates based on the active position
-  const filteredCandidates = useMemo(() => {
-    return allCandidates.filter((c) => c.position === activePosition);
-  }, [allCandidates, activePosition]);
-
-  // Create a list of all unique positions from the allCandidates array
-  const allPositions = useMemo(() => {
-    const positions = allCandidates.map((c) => c.position);
-    return [...new Set(positions)];
-  }, [allCandidates]);
-
-  // NEW LOGIC: Fetch total voters directly from Firestore "members" collection
+  // Fetch total voters from Firestore
   useEffect(() => {
     const fetchTotalVoters = async () => {
       try {
@@ -139,108 +113,195 @@ export default function ElectionDashboard() {
         console.error("Failed to fetch total voters from Firestore:", error);
       }
     };
-
     fetchTotalVoters();
-  }, []); // Run only once on component mount
+  }, []);
 
-  // Fetch all election data from Firestore and combine the candidates
+  // Sync with Firestore for Election Data
   useEffect(() => {
-    const q = query(collection(db, "elections"));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      let combinedCandidates: Candidate[] = [];
-      let isElectionFound = false; // Add a flag to track if an election exists
+    const electionQuery = query(collection(db, "elections"));
+
+    const unsubscribeElection = onSnapshot(electionQuery, (querySnapshot) => {
+      let isElectionFound = false;
+      let currentElectionId: string | null = null;
+      let electionEndTime: Date | undefined;
 
       querySnapshot.forEach((doc) => {
         const electionData = doc.data() as Election;
-        if (electionData.candidates) {
-          combinedCandidates = [
-            ...combinedCandidates,
-            ...electionData.candidates,
-          ];
-        }
+        const now = new Date();
+        const endTime = electionData.endTimestamp?.toDate();
+        const remainingTime = endTime ? Math.max(0, Math.floor((endTime.getTime() - now.getTime()) / 1000)) : 0;
 
-        // Check the expiration date from Firestore
-        if (electionData.endTimestamp) {
-          const now = new Date();
-          const endTime = electionData.endTimestamp.toDate();
-          const remainingTime = Math.max(
-            0,
-            Math.floor((endTime.getTime() - now.getTime()) / 1000)
-          );
-
-          if (remainingTime > 0) {
-            isElectionFound = true; // An un-expired election was found
-            setVotingActive(true);
-            setElectionDetails({
-              title: electionData.title,
-              date: electionData.date,
-              startTime: electionData.startTime,
-              endTime: electionData.endTime,
-            });
-            setDurationSeconds(remainingTime);
-          }
+        if (remainingTime > 0) {
+          isElectionFound = true;
+          currentElectionId = doc.id;
+          electionEndTime = endTime;
         }
       });
-      setAllCandidatesFromFirestore(combinedCandidates);
 
       setElectionAlreadyExists(isElectionFound);
-      if (!isElectionFound) {
-        setElectionDetails(resetElectionForm());
-        setCandidatesList([]);
-      }
+      setActiveElectionId(currentElectionId);
 
-      // Set the active position to the first position available
-      if (combinedCandidates.length > 0) {
-        setActivePosition(combinedCandidates[0].position);
+      if (isElectionFound) {
+        const now = new Date();
+        const remainingTime = Math.max(0, Math.floor((electionEndTime!.getTime() - now.getTime()) / 1000));
+        setDurationSeconds(remainingTime);
+        setVotingActive(true);
+      } else {
+        setDurationSeconds(0);
+        setVotingActive(false);
       }
     });
 
-    // Clean up function for both listeners
-    return () => {
-      unsubscribe();
-    };
+    return unsubscribeElection;
   }, []);
 
+  // Sync with Firestore for Candidates
   useEffect(() => {
-    if (durationSeconds <= 0) {
-      setVotingActive(false);
-      // PAG-TAPOS NA ANG VOTING DURATION, I-RESET ANG FORM AT ANG `electionAlreadyExists`
-      setElectionAlreadyExists(false);
-      setElectionDetails(resetElectionForm());
-      setCandidatesList([]);
-      setCurrentCandidate(resetCandidateForm());
+    if (!activeElectionId) {
+      setAllCandidatesFromFirestore([]);
+      setActivePosition("President");
       return;
     }
 
-    const t = setInterval(() => {
-      setDurationSeconds((s) => s - 1);
-    }, 1000);
-    return () => clearInterval(t);
-  }, [durationSeconds]);
+    const candidatesCollectionRef = collection(db, "elections", activeElectionId, "candidates");
+
+    const unsubscribeCandidates = onSnapshot(candidatesCollectionRef, (candidatesSnapshot) => {
+      const candidatesData: DisplayCandidate[] = candidatesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as Candidate,
+        votes: 0 // Will be updated by the votes listener
+      }));
+      setAllCandidatesFromFirestore(candidatesData);
+
+      if (candidatesData.length > 0) {
+        setActivePosition(candidatesData[0].position);
+      } else {
+        setActivePosition("President");
+      }
+    });
+
+    return unsubscribeCandidates;
+  }, [activeElectionId]);
+
+  // Sync with Firestore for Votes
+  useEffect(() => {
+    if (!activeElectionId) {
+        setVoterStats(prevStats => ({ ...prevStats, voted: 0, notVoted: prevStats.total }));
+        return;
+    }
+    
+    // Gumawa ng map para madaling hanapin ang kandidato gamit ang kanilang ID
+    const candidateIdToNameMap = new Map<string, { name: string, position: string }>();
+    allCandidatesFromFirestore.forEach(candidate => {
+        candidateIdToNameMap.set(candidate.id, { name: candidate.name, position: candidate.position });
+    });
+
+    const votesQuery = query(
+        collection(db, "votes"),
+        where("eventId", "==", activeElectionId)
+    );
+
+    const unsubscribeVotes = onSnapshot(votesQuery, (votesSnapshot) => {
+        const voteCounts = new Map<string, number>();
+        const uniqueVoters = new Set<string>();
+
+        votesSnapshot.docs.forEach((doc) => {
+            const voteData = doc.data();
+            const votesMap = voteData.votes;
+            const voterId = voteData.userId;
+
+            if (voterId) {
+                uniqueVoters.add(voterId);
+            }
+
+            if (votesMap && typeof votesMap === "object") {
+                // Loop sa bawat posisyon (e.g., "President")
+                Object.keys(votesMap).forEach((position) => {
+                    // Kunin ang candidateId mula sa nested map
+                    const candidateId = votesMap[position]?.candidateId;
+                    
+                    if (candidateId) {
+                        // Gamitin ang ID para makuha ang pangalan ng kandidato
+                        const candidateInfo = candidateIdToNameMap.get(candidateId);
+                        
+                        if (candidateInfo) {
+                            const candidateName = candidateInfo.name;
+                            const candidateKey = `${candidateName}-${position}`;
+                            const currentCount = voteCounts.get(candidateKey) || 0;
+                            voteCounts.set(candidateKey, currentCount + 1);
+                        }
+                    }
+                });
+            }
+        });
+        
+        console.log("Total unique voters who voted:", uniqueVoters.size);
+        console.log("-----------------------------------------");
+
+        setAllCandidatesFromFirestore((prevCandidates) => {
+            return prevCandidates.map((candidate) => {
+                const candidateKey = `${candidate.name}-${candidate.position}`;
+                const votes = voteCounts.get(candidateKey) || 0;
+                return {
+                    ...candidate,
+                    votes: votes,
+                };
+            });
+        });
+
+        const votedCount = uniqueVoters.size;
+
+        // I-update ang voter stats
+        setVoterStats(prevStats => ({
+            ...prevStats,
+            voted: votedCount,
+            // Gamitin ang tamang formula: Total - Voted
+            notVoted: prevStats.total - votedCount,
+        }));
+    });
+
+    return unsubscribeVotes;
+  }, [activeElectionId, voterStats.total, allCandidatesFromFirestore]); // Idinagdag ang dependency na 'allCandidatesFromFirestore'
+
+  // Timer useEffect
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (votingActive && durationSeconds > 0) {
+      timer = setInterval(() => {
+        setDurationSeconds((prevSeconds) => {
+          if (prevSeconds <= 1) {
+            setVotingActive(false);
+            setElectionAlreadyExists(false);
+            return 0;
+          }
+          return prevSeconds - 1;
+        });
+      }, 1000);
+    } else if (durationSeconds <= 0 && votingActive) {
+        setVotingActive(false);
+        setElectionAlreadyExists(false);
+    }
+    
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [votingActive, durationSeconds]);
 
   const formatDuration = (s: number): string => {
-    const hh = Math.floor(s / 3600)
-      .toString()
-      .padStart(2, "0");
-    const mm = Math.floor((s % 3600) / 60)
-      .toString()
-      .padStart(2, "0");
-    const ss = Math.floor(s % 60)
-      .toString()
-      .padStart(2, "0");
+    const hh = Math.floor(s / 3600).toString().padStart(2, "0");
+    const mm = Math.floor((s % 3600) / 60).toString().padStart(2, "0");
+    const ss = Math.floor(s % 60).toString().padStart(2, "0");
     return `${hh}:${mm}:${ss}`;
   };
 
-  const handleElectionChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleElectionChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setElectionDetails((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleCandidateChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleCandidateChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setCurrentCandidate((prev) => ({ ...prev, [name]: value }));
   };
@@ -254,11 +315,7 @@ export default function ElectionDashboard() {
 
   const handleAddCandidateToList = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (
-      !currentCandidate.name ||
-      !currentCandidate.position ||
-      !currentCandidate.imageFile
-    ) {
+    if (!currentCandidate.name || !currentCandidate.position || !currentCandidate.imageFile) {
       alert("Please fill out all candidate fields.");
       return;
     }
@@ -266,10 +323,7 @@ export default function ElectionDashboard() {
     setIsSubmitting(true);
     let photoURL = "";
     try {
-      const storageRef = ref(
-        storage,
-        `candidates/${currentCandidate.imageFile.name}`
-      );
+      const storageRef = ref(storage, `candidates/${currentCandidate.imageFile.name}`);
       await uploadBytes(storageRef, currentCandidate.imageFile);
       photoURL = await getDownloadURL(storageRef);
 
@@ -281,7 +335,6 @@ export default function ElectionDashboard() {
       };
 
       setCandidatesList((prev) => [...prev, newCandidate]);
-
       setCurrentCandidate(resetCandidateForm());
     } catch (error) {
       console.error("Error uploading image: ", error);
@@ -299,30 +352,31 @@ export default function ElectionDashboard() {
 
     setIsSubmitting(true);
     try {
-      const electionEndDate = new Date(
-        `${electionDetails.date}T${electionDetails.endTime}`
-      );
-      const electionStartDate = new Date(
-        `${electionDetails.date}T${electionDetails.startTime}`
-      );
+      const electionEndDate = new Date(`${electionDetails.date}T${electionDetails.endTime}`);
 
-      const durationInSeconds = Math.max(
-        0,
-        Math.floor(
-          (electionEndDate.getTime() - electionStartDate.getTime()) / 1000
-        )
-      );
-
-      setDurationSeconds(durationInSeconds);
-
-      const electionDocRef = await addDoc(collection(db, "elections"), {
-        ...electionDetails,
-        candidates: candidatesList,
+      // Create a batch to add the election and all candidates in one atomic operation
+      const batch = writeBatch(db);
+      
+      const newElectionRef = doc(collection(db, "elections"));
+      
+      batch.set(newElectionRef, {
+        title: electionDetails.title,
+        date: electionDetails.date,
+        startTime: electionDetails.startTime,
+        endTime: electionDetails.endTime,
         createdAt: new Date(),
         endTimestamp: Timestamp.fromDate(electionEndDate),
       });
-      console.log("Election saved with ID: ", electionDocRef.id);
 
+      candidatesList.forEach(candidate => {
+        const candidateRef = doc(collection(newElectionRef, "candidates"));
+        batch.set(candidateRef, candidate);
+      });
+
+      await batch.commit();
+
+      console.log("Election and candidates saved with ID: ", newElectionRef.id);
+      
       setElectionDetails(resetElectionForm());
       setCandidatesList([]);
       setShowForm(false);
@@ -334,9 +388,41 @@ export default function ElectionDashboard() {
     }
   };
 
+  const handleStopVoting = async () => {
+    if (!activeElectionId) {
+      alert("No active election to stop.");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to end the voting now?")) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const electionRef = doc(db, "elections", activeElectionId);
+      await deleteDoc(electionRef);
+      // Firebase triggers will handle deleting subcollections
+      alert("Election successfully ended.");
+    } catch (error) {
+      console.error("Failed to stop voting: ", error);
+      alert("Failed to end the election. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const filteredCandidates = useMemo(() => {
+    return allCandidatesFromFirestore.filter((c) => c.position === activePosition);
+  }, [allCandidatesFromFirestore, activePosition]);
+
+  const allPositions = useMemo(() => {
+    const positions = allCandidatesFromFirestore.map((c) => c.position);
+    return [...new Set(positions)];
+  }, [allCandidatesFromFirestore]);
+
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Top accent bar and header */}
       <div className="bg-emerald-800 h-20 flex items-center px-8">
         <h1 className="text-3xl font-extrabold text-white">Election Module</h1>
         <div className="ml-auto flex items-center gap-4">
@@ -347,7 +433,6 @@ export default function ElectionDashboard() {
       </div>
 
       <div className="container mx-auto px-6 py-8">
-        {/* Election Status card */}
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="bg-gray-800 text-gray-100 px-6 py-4 flex items-center justify-between">
             <div className="font-semibold">Election Status</div>
@@ -372,7 +457,6 @@ export default function ElectionDashboard() {
           </div>
 
           <div className="p-6">
-            {/* Stats cards */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
               <div className="relative bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
                 <div className="border-l-4 border-amber-400 pl-4">
@@ -423,7 +507,6 @@ export default function ElectionDashboard() {
               </div>
             </div>
 
-            {/* Main content */}
             <div className="mt-8 bg-white border rounded shadow-sm flex">
               <aside className="w-48 bg-gray-800 text-white p-6">
                 <nav className="flex flex-col gap-6 text-sm">
@@ -450,8 +533,9 @@ export default function ElectionDashboard() {
                   </h2>
                   <div>
                     <button
-                      onClick={() => setVotingActive(false)}
+                      onClick={handleStopVoting}
                       className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded"
+                      disabled={!votingActive || isSubmitting}
                     >
                       <FiXCircle /> Stop Voting
                     </button>
@@ -461,12 +545,11 @@ export default function ElectionDashboard() {
                 <div className="mt-6 bg-gray-50 border rounded p-8 shadow-inner">
                   {filteredCandidates.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start text-center">
-                      {filteredCandidates.map((c, index) => (
+                      {filteredCandidates.map((c) => (
                         <div
-                          key={index}
+                          key={c.id}
                           className="flex flex-col items-center gap-4"
                         >
-                          {/* Updated Image Display */}
                           {c.photoURL ? (
                             <img
                               src={c.photoURL}
@@ -478,7 +561,6 @@ export default function ElectionDashboard() {
                               No Image
                             </div>
                           )}
-                          {/* End of Updated Image Display */}
                           <div className="text-lg font-semibold">{c.name}</div>
                           <div className="w-36 bg-gray-200 rounded-md py-3 text-2xl font-bold">
                             {c.votes}
@@ -499,7 +581,6 @@ export default function ElectionDashboard() {
         </div>
       </div>
 
-      {/* Modal Form */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 relative">
@@ -514,7 +595,6 @@ export default function ElectionDashboard() {
               Create New Election
             </h2>
 
-            {/* Election Details */}
             <div className="mb-6">
               <h3 className="font-semibold mb-3">Election Details</h3>
               <div className="grid grid-cols-2 gap-6">
@@ -526,7 +606,6 @@ export default function ElectionDashboard() {
                     name="title"
                     value={electionDetails.title}
                     onChange={handleElectionChange}
-                    // Updated logic: if election already exists, disable the field
                     disabled={electionAlreadyExists}
                   />
                 </div>
@@ -538,7 +617,6 @@ export default function ElectionDashboard() {
                     name="date"
                     value={electionDetails.date}
                     onChange={handleElectionChange}
-                    // Updated logic: if election already exists, disable the field
                     disabled={electionAlreadyExists}
                   />
                 </div>
@@ -551,7 +629,6 @@ export default function ElectionDashboard() {
                       name="startTime"
                       value={electionDetails.startTime}
                       onChange={handleElectionChange}
-                      // Updated logic: if election already exists, disable the field
                       disabled={electionAlreadyExists}
                     />
                     <span className="self-center">to</span>
@@ -561,7 +638,6 @@ export default function ElectionDashboard() {
                       name="endTime"
                       value={electionDetails.endTime}
                       onChange={handleElectionChange}
-                      // Updated logic: if election already exists, disable the field
                       disabled={electionAlreadyExists}
                     />
                   </div>
@@ -569,7 +645,6 @@ export default function ElectionDashboard() {
               </div>
             </div>
 
-            {/* Candidates */}
             <div>
               <h3 className="font-semibold mb-3">Candidates</h3>
               <div className="grid grid-cols-2 gap-6">
@@ -635,7 +710,6 @@ export default function ElectionDashboard() {
               </button>
             </div>
 
-            {/* Display added candidates */}
             {candidatesList.length > 0 && (
               <div className="mt-6 p-4 border rounded">
                 <h4 className="font-semibold mb-2">Candidates to be Saved:</h4>
@@ -649,7 +723,6 @@ export default function ElectionDashboard() {
               </div>
             )}
 
-            {/* Final Save Button */}
             <div className="mt-6 text-right">
               <button
                 onClick={handleSaveElection}

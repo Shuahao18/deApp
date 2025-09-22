@@ -80,12 +80,12 @@ const Layout = () => {
             </button>
             {isMembersOpen && (
               <div className="ml-4 mt-2 space-y-1">
-                <Link
+                {/* <Link
                   to="/members/memAssoc"
                   className="block text-sm hover:bg-green-800 p-2 rounded"
                 >
                   Member Association
-                </Link>
+                </Link> */}
                 <Link
                   to="/members/accReg"
                   className="block text-sm hover:bg-green-800 p-2 rounded"
