@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { MoreVertical } from "lucide-react";
-import { db } from "../../Firebase"; // Removed storage
+import { db } from "../../Firebase";
 import {
   collection,
   onSnapshot,
@@ -8,8 +8,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 
-// --- Interfaces para sa data ---
-interface Candidate {
+interface Official {
   id: string;
   name: string;
   position: string;
@@ -19,28 +18,28 @@ interface Candidate {
   photoURL?: string;
 }
 
-// --- Ang Component mismo ---
 export default function OffHoa() {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [officials, setOfficials] = useState<Official[]>([]);
 
-  // Fetching data mula sa Firestore
   useEffect(() => {
     if (!db) {
       console.error("Firestore database is not initialized.");
       return;
     }
-    const q = query(collection(db, "candidates"), orderBy("name"));
+    
+    // Fetch from the new 'elected_officials' collection
+    const q = query(collection(db, "elected_officials"), orderBy("position"));
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
-        const candidatesList: Candidate[] = [];
+        const officialsList: Official[] = [];
         querySnapshot.forEach((doc) => {
-          candidatesList.push({ id: doc.id, ...doc.data() } as Candidate);
+          officialsList.push({ id: doc.id, ...doc.data() } as Official);
         });
-        setCandidates(candidatesList);
+        setOfficials(officialsList);
       },
       (error) => {
-        console.error("Error fetching candidates:", error);
+        console.error("Error fetching elected officials:", error);
       }
     );
 
@@ -66,44 +65,48 @@ export default function OffHoa() {
         ))}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {candidates.map((c) => (
-          <div
-            key={c.id}
-            className="flex items-center bg-white shadow-md rounded-xl overflow-hidden"
-          >
-            <div className="w-1/3 bg-gray-200 h-40 flex items-center justify-center">
-              {c.photoURL ? (
-                <img
-                  src={c.photoURL}
-                  alt={c.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-gray-600 font-medium">+ Add Image</span>
-              )}
+        {officials.length > 0 ? (
+          officials.map((o) => (
+            <div
+              key={o.id}
+              className="flex items-center bg-white shadow-md rounded-xl overflow-hidden"
+            >
+              <div className="w-1/3 bg-gray-200 h-40 flex items-center justify-center">
+                {o.photoURL ? (
+                  <img
+                    src={o.photoURL}
+                    alt={o.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-gray-600 font-medium">+ Add Image</span>
+                )}
+              </div>
+              <div className="w-2/3 bg-green-800 text-white p-4 relative">
+                <button className="absolute top-2 right-2 text-white">
+                  <MoreVertical />
+                </button>
+                <p>
+                  <span className="font-semibold">Name:</span> {o.name}
+                </p>
+                <p>
+                  <span className="font-semibold">Position:</span> {o.position}
+                </p>
+                <p>
+                  <span className="font-semibold">Contact:</span> {o.contactNo}
+                </p>
+                <p>
+                  <span className="font-semibold">Email:</span> {o.email}
+                </p>
+                <p>
+                  <span className="font-semibold">Term:</span> {o.termDuration}
+                </p>
+              </div>
             </div>
-            <div className="w-2/3 bg-green-800 text-white p-4 relative">
-              <button className="absolute top-2 right-2 text-white">
-                <MoreVertical />
-              </button>
-              <p>
-                <span className="font-semibold">Name:</span> {c.name}
-              </p>
-              <p>
-                <span className="font-semibold">Position:</span> {c.position}
-              </p>
-              <p>
-                <span className="font-semibold">Contact:</span> {c.contactNo}
-              </p>
-              <p>
-                <span className="font-semibold">Email:</span> {c.email}
-              </p>
-              <p>
-                <span className="font-semibold">Term:</span> {c.termDuration}
-              </p>
-            </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          <p>No elected officials found. Please run an election first.</p>
+        )}
       </div>
     </div>
   );

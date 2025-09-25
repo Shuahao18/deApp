@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   orderBy,
+  updateDoc,
 } from "firebase/firestore";
 import { db, auth } from "../Firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -16,6 +17,7 @@ import {
   FaCheckCircle,
   FaTimesCircle,
   FaRegFile,
+  FaImage,
 } from "react-icons/fa";
 
 interface Complaint {
@@ -27,6 +29,7 @@ interface Complaint {
   status: string;
   createdAt: string;
   userId: string;
+  imageUrls?: string[];
 }
 
 const getCardProps = (label: string) => {
@@ -49,6 +52,7 @@ const getCardProps = (label: string) => {
 const Complaints: React.FC = () => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const [totalCount, setTotalCount] = useState(0);
   const [newCount, setNewCount] = useState(0);
@@ -148,6 +152,33 @@ const Complaints: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  const handleStatusChange = async (
+    complaintId: string,
+    newStatus: "solved" | "rejected" | "pending"
+  ) => {
+    try {
+      const complaintDocRef = doc(db, "complaints", complaintId);
+      await updateDoc(complaintDocRef, { status: newStatus });
+      setComplaints((prevComplaints) =>
+        prevComplaints.map((c) =>
+          c.id === complaintId ? { ...c, status: newStatus } : c
+        )
+      );
+      window.location.reload();
+    } catch (error) {
+      console.error("Error updating complaint status:", error);
+      alert("Failed to update complaint status. Please try again.");
+    }
+  };
+
+  const openImageViewer = (imageUrl: string) => {
+    setSelectedImage(imageUrl);
+  };
+
+  const closeImageViewer = () => {
+    setSelectedImage(null);
+  };
+
   const counts = [
     totalCount,
     newCount,
@@ -155,6 +186,9 @@ const Complaints: React.FC = () => {
     solvedCount,
     rejectedCount,
   ];
+
+  // Filter complaints to display only "pending" ones in the main list section
+  const pendingComplaints = complaints.filter((c) => c.status === "pending");
 
   return (
     <div className="min-h-screen bg-[#F5F6FA] font-poppins">
@@ -193,20 +227,20 @@ const Complaints: React.FC = () => {
             })}
           </div>
 
-          {/* Complaint List */}
+          {/* Pending Complaints List */}
           <div className="bg-white rounded-md shadow">
             <div className="p-4 border-b text-gray-700 font-semibold">
-              New Complaints
+              Pending Complaints
             </div>
 
             {loading ? (
               <div className="p-6 text-sm text-gray-500">Loading...</div>
-            ) : complaints.length === 0 ? (
+            ) : pendingComplaints.length === 0 ? (
               <div className="p-6 text-sm text-gray-500">
-                No complaints found.
+                No pending complaints found.
               </div>
             ) : (
-              complaints.map((c) => (
+              pendingComplaints.map((c) => (
                 <div
                   key={c.id}
                   className="p-6 border-b last:border-none hover:bg-gray-50 transition"
@@ -215,8 +249,8 @@ const Complaints: React.FC = () => {
                     <p className="text-sm font-semibold text-gray-800">
                       From: {c.name}
                     </p>
-                    <span className="px-3 py-1 text-xs rounded-full bg-[#009245] text-white font-medium">
-                      New
+                    <span className="px-3 py-1 text-xs rounded-full bg-[#FFB700] text-white font-medium">
+                      Pending
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">
@@ -228,11 +262,41 @@ const Complaints: React.FC = () => {
                     {c.complaint}
                   </p>
 
+                  {/* Image Display */}
+                  <div className="flex gap-2 mt-4">
+                    {c.imageUrls && c.imageUrls.length > 0 ? (
+                      c.imageUrls.map((url, index) => (
+                        <img
+                          key={index}
+                          src={url}
+                          alt={`Complaint Image ${index + 1}`}
+                          className="w-24 h-24 rounded-md object-cover cursor-pointer hover:opacity-80 transition"
+                          onClick={() => openImageViewer(url)}
+                        />
+                      ))
+                    ) : (
+                      <>
+                        <div className="w-24 h-24 bg-gray-200 rounded-md flex items-center justify-center text-gray-500 text-xs">
+                          Image no. 1
+                        </div>
+                        <div className="w-24 h-24 bg-gray-200 rounded-md flex items-center justify-center text-gray-500 text-xs">
+                          Image no. 2
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <div className="flex gap-3 mt-4">
-                    <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#009245] hover:bg-[#007F5F] text-sm font-medium transition">
+                    <button
+                      onClick={() => handleStatusChange(c.id, "solved")}
+                      className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#009245] hover:bg-[#007F5F] text-sm font-medium transition"
+                    >
                       <FaCheckCircle /> Accept
                     </button>
-                    <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#C70039] hover:bg-[#B00028] text-sm font-medium transition">
+                    <button
+                      onClick={() => handleStatusChange(c.id, "rejected")}
+                      className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-[#C70039] hover:bg-[#B00028] text-sm font-medium transition"
+                    >
                       <FaTimesCircle /> Reject
                     </button>
                   </div>
@@ -242,6 +306,30 @@ const Complaints: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Image Viewer Modal */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={closeImageViewer}
+        >
+          <div className="relative max-w-full max-h-full">
+            <button
+              onClick={closeImageViewer}
+              className="absolute top-4 right-4 text-white text-4xl font-bold p-2"
+              title="Close"
+            >
+              &times;
+            </button>
+            <img
+              src={selectedImage}
+              alt="Full-size Complaint Image"
+              className="max-w-full max-h-screen object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -4,17 +4,15 @@ import { FaUsers, FaCheckCircle } from "react-icons/fa";
 import { db, storage } from "../Firebase";
 import {
   collection,
-  addDoc,
   query,
   onSnapshot,
   getDocs,
   Timestamp,
   doc,
-  deleteDoc,
   writeBatch,
-  where
+  where,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // The Candidate type reflects the data to be saved to Firestore
 type Candidate = {
@@ -97,6 +95,111 @@ export default function ElectionDashboard() {
     voted: 0,
     notVoted: 0,
   });
+  
+  // New function to update remaining time
+  const updateRemainingTime = (endTimestamp: Timestamp) => {
+    const now = new Date();
+    const endTime = endTimestamp.toDate();
+    const remaining = Math.floor((endTime.getTime() - now.getTime()) / 1000);
+    setDurationSeconds(Math.max(0, remaining));
+  };
+  
+  // New function to tally votes and save elected officials
+  // New function to tally votes and save elected officials
+// New function to tally votes and save elected officials
+const tallyVotesAndSaveOfficials = async (electionId: string) => {
+    if (!electionId) {
+        console.error("No active election ID provided for tallying.");
+        return;
+    }
+
+    setIsSubmitting(true);
+    try {
+        const batch = writeBatch(db);
+        const oldOfficialsQuery = query(collection(db, "elected_officials"));
+        const oldOfficialsSnapshot = await getDocs(oldOfficialsQuery);
+        oldOfficialsSnapshot.forEach(doc => {
+        batch.delete(doc.ref);
+        });
+        // Step 1: Fetch all candidates and votes for the election
+        const candidatesRef = collection(db, "elections", electionId, "candidates");
+        const candidatesSnapshot = await getDocs(candidatesRef);
+        const candidates = candidatesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data() as Candidate
+        }));
+
+        const votesRef = collection(db, "votes");
+        const votesQuery = query(votesRef, where("eventId", "==", electionId));
+        const votesSnapshot = await getDocs(votesQuery);
+        const allVotes = votesSnapshot.docs.map(doc => doc.data().votes);
+
+        // Step 2: Tally votes
+        const voteCounts = new Map<string, number>();
+
+        allVotes.forEach(voteObject => {
+            if (voteObject && typeof voteObject === "object") {
+                Object.keys(voteObject).forEach((position) => {
+                    const candidateId = voteObject[position]?.candidateId;
+                    const candidate = candidates.find(c => c.id === candidateId);
+                    if (candidate) {
+                        voteCounts.set(candidate.id, (voteCounts.get(candidate.id) || 0) + 1);
+                    }
+                });
+            }
+        });
+
+        // Step 3: Determine and save winners
+        const positions = [...new Set(candidates.map(c => c.position))];
+        const electedOfficialsRef = collection(db, "elected_officials");
+
+        for (const position of positions) {
+            const candidatesForPosition = candidates.filter(c => c.position === position);
+            let winningCandidate = null;
+            let maxVotes = -1;
+
+            for (const candidate of candidatesForPosition) {
+                const currentVotes = voteCounts.get(candidate.id) || 0;
+                if (currentVotes > maxVotes) {
+                    maxVotes = currentVotes;
+                    winningCandidate = candidate;
+                }
+            }
+
+            if (winningCandidate) {
+                const winnerDocRef = doc(electedOfficialsRef);
+                batch.set(winnerDocRef, {
+                    name: winningCandidate.name,
+                    position: winningCandidate.position,
+                    termDuration: winningCandidate.termDuration,
+                    photoURL: winningCandidate.photoURL,
+                    votes: maxVotes
+                });
+            }
+        }
+        
+        // --- ADDED: Delete all candidates in the election subcollection
+        candidatesSnapshot.forEach(candidateDoc => {
+            batch.delete(doc(candidatesRef, candidateDoc.id));
+        });
+        
+        // --- ADDED: Delete the main election document
+        const electionDocRef = doc(db, "elections", electionId);
+        batch.delete(electionDocRef);
+
+        await batch.commit();
+
+        console.log("Election ended and officials saved. Election and candidates deleted.");
+        setVotingActive(false);
+        alert("Election has been successfully ended and results are saved!");
+
+    } catch (error) {
+        console.error("Failed to tally votes or save officials:", error);
+        alert("An error occurred while ending the election.");
+    } finally {
+        setIsSubmitting(false);
+    }
+};
 
   // Fetch total voters from Firestore
   useEffect(() => {
@@ -123,7 +226,7 @@ export default function ElectionDashboard() {
     const unsubscribeElection = onSnapshot(electionQuery, (querySnapshot) => {
       let isElectionFound = false;
       let currentElectionId: string | null = null;
-      let electionEndTime: Date | undefined;
+      let electionEndTime: Timestamp | undefined;
 
       querySnapshot.forEach((doc) => {
         const electionData = doc.data() as Election;
@@ -134,161 +237,122 @@ export default function ElectionDashboard() {
         if (remainingTime > 0) {
           isElectionFound = true;
           currentElectionId = doc.id;
-          electionEndTime = endTime;
+          electionEndTime = electionData.endTimestamp;
         }
       });
 
       setElectionAlreadyExists(isElectionFound);
       setActiveElectionId(currentElectionId);
 
-      if (isElectionFound) {
-        const now = new Date();
-        const remainingTime = Math.max(0, Math.floor((electionEndTime!.getTime() - now.getTime()) / 1000));
-        setDurationSeconds(remainingTime);
+      if (isElectionFound && electionEndTime) {
         setVotingActive(true);
+        updateRemainingTime(electionEndTime);
       } else {
-        setDurationSeconds(0);
         setVotingActive(false);
+        setDurationSeconds(0);
       }
     });
 
     return unsubscribeElection;
   }, []);
 
-  // Sync with Firestore for Candidates
-  useEffect(() => {
-    if (!activeElectionId) {
-      setAllCandidatesFromFirestore([]);
-      setActivePosition("President");
-      return;
-    }
-
-    const candidatesCollectionRef = collection(db, "elections", activeElectionId, "candidates");
-
-    const unsubscribeCandidates = onSnapshot(candidatesCollectionRef, (candidatesSnapshot) => {
-      const candidatesData: DisplayCandidate[] = candidatesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data() as Candidate,
-        votes: 0 // Will be updated by the votes listener
-      }));
-      setAllCandidatesFromFirestore(candidatesData);
-
-      if (candidatesData.length > 0) {
-        setActivePosition(candidatesData[0].position);
-      } else {
-        setActivePosition("President");
-      }
-    });
-
-    return unsubscribeCandidates;
-  }, [activeElectionId]);
-
-  // Sync with Firestore for Votes
-  useEffect(() => {
-    if (!activeElectionId) {
-        setVoterStats(prevStats => ({ ...prevStats, voted: 0, notVoted: prevStats.total }));
-        return;
-    }
-    
-    // Gumawa ng map para madaling hanapin ang kandidato gamit ang kanilang ID
-    const candidateIdToNameMap = new Map<string, { name: string, position: string }>();
-    allCandidatesFromFirestore.forEach(candidate => {
-        candidateIdToNameMap.set(candidate.id, { name: candidate.name, position: candidate.position });
-    });
-
-    const votesQuery = query(
-        collection(db, "votes"),
-        where("eventId", "==", activeElectionId)
-    );
-
-    const unsubscribeVotes = onSnapshot(votesQuery, (votesSnapshot) => {
-        const voteCounts = new Map<string, number>();
-        const uniqueVoters = new Set<string>();
-
-        votesSnapshot.docs.forEach((doc) => {
-            const voteData = doc.data();
-            const votesMap = voteData.votes;
-            const voterId = voteData.userId;
-
-            if (voterId) {
-                uniqueVoters.add(voterId);
-            }
-
-            if (votesMap && typeof votesMap === "object") {
-                // Loop sa bawat posisyon (e.g., "President")
-                Object.keys(votesMap).forEach((position) => {
-                    // Kunin ang candidateId mula sa nested map
-                    const candidateId = votesMap[position]?.candidateId;
-                    
-                    if (candidateId) {
-                        // Gamitin ang ID para makuha ang pangalan ng kandidato
-                        const candidateInfo = candidateIdToNameMap.get(candidateId);
-                        
-                        if (candidateInfo) {
-                            const candidateName = candidateInfo.name;
-                            const candidateKey = `${candidateName}-${position}`;
-                            const currentCount = voteCounts.get(candidateKey) || 0;
-                            voteCounts.set(candidateKey, currentCount + 1);
-                        }
-                    }
-                });
-            }
-        });
-        
-        console.log("Total unique voters who voted:", uniqueVoters.size);
-        console.log("-----------------------------------------");
-
-        setAllCandidatesFromFirestore((prevCandidates) => {
-            return prevCandidates.map((candidate) => {
-                const candidateKey = `${candidate.name}-${candidate.position}`;
-                const votes = voteCounts.get(candidateKey) || 0;
-                return {
-                    ...candidate,
-                    votes: votes,
-                };
-            });
-        });
-
-        const votedCount = uniqueVoters.size;
-
-        // I-update ang voter stats
-        setVoterStats(prevStats => ({
-            ...prevStats,
-            voted: votedCount,
-            // Gamitin ang tamang formula: Total - Voted
-            notVoted: prevStats.total - votedCount,
-        }));
-    });
-
-    return unsubscribeVotes;
-  }, [activeElectionId, voterStats.total, allCandidatesFromFirestore]); // Idinagdag ang dependency na 'allCandidatesFromFirestore'
-
-  // Timer useEffect
+  // Timer useEffect for voting duration
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
-    if (votingActive && durationSeconds > 0) {
+    if (votingActive) {
       timer = setInterval(() => {
-        setDurationSeconds((prevSeconds) => {
+        setDurationSeconds(prevSeconds => {
           if (prevSeconds <= 1) {
-            setVotingActive(false);
-            setElectionAlreadyExists(false);
+            clearInterval(timer!);
+            // Tally votes when timer ends
+            if (activeElectionId) {
+              tallyVotesAndSaveOfficials(activeElectionId);
+            }
             return 0;
           }
           return prevSeconds - 1;
         });
       }, 1000);
-    } else if (durationSeconds <= 0 && votingActive) {
-        setVotingActive(false);
-        setElectionAlreadyExists(false);
     }
-    
     return () => {
-      if (timer) {
-        clearInterval(timer);
-      }
+      if (timer) clearInterval(timer);
     };
-  }, [votingActive, durationSeconds]);
+  }, [votingActive, activeElectionId]);
 
+  // Consolidated useEffect for Candidates and Votes
+  useEffect(() => {
+    if (!activeElectionId) {
+      setAllCandidatesFromFirestore([]);
+      setActivePosition("President");
+      setVoterStats(prevStats => ({ ...prevStats, voted: 0, notVoted: prevStats.total }));
+      return;
+    }
+
+    const candidatesCollectionRef = collection(db, "elections", activeElectionId, "candidates");
+    const votesCollectionRef = collection(db, "votes");
+
+    const unsubscribeCandidates = onSnapshot(candidatesCollectionRef, (candidatesSnapshot) => {
+      const candidatesData: DisplayCandidate[] = candidatesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as Candidate,
+        votes: 0 // Initialize votes to 0
+      }));
+      setAllCandidatesFromFirestore(candidatesData);
+
+      // Now, set up the votes listener after candidates are fetched
+      const votesQuery = query(votesCollectionRef, where("eventId", "==", activeElectionId));
+      
+      const unsubscribeVotes = onSnapshot(votesQuery, (votesSnapshot) => {
+        const uniqueVoters = new Set<string>();
+        const voteCounts = new Map<string, number>();
+
+        votesSnapshot.docs.forEach((doc) => {
+          const voteData = doc.data();
+          const voterId = voteData.userId;
+          if (voterId) {
+            uniqueVoters.add(voterId);
+          }
+
+          if (voteData.votes && typeof voteData.votes === "object") {
+            Object.keys(voteData.votes).forEach((position) => {
+              const candidateId = voteData.votes[position]?.candidateId;
+              const candidateInfo = candidatesData.find(c => c.id === candidateId);
+              if (candidateInfo) {
+                const currentCount = voteCounts.get(candidateInfo.id) || 0;
+                voteCounts.set(candidateInfo.id, currentCount + 1);
+              }
+            });
+          }
+        });
+        
+        // Update voter stats
+        const votedCount = uniqueVoters.size;
+        setVoterStats(prevStats => ({
+          ...prevStats,
+          voted: votedCount,
+          notVoted: prevStats.total - votedCount,
+        }));
+
+        // Update candidate vote counts
+        setAllCandidatesFromFirestore((prevCandidates) => {
+          return prevCandidates.map((candidate) => {
+            const votes = voteCounts.get(candidate.id) || 0;
+            return {
+              ...candidate,
+              votes: votes,
+            };
+          });
+        });
+      });
+
+      // Return cleanup function for the votes listener
+      return unsubscribeVotes;
+    });
+
+    // Return cleanup function for the candidates listener
+    return unsubscribeCandidates;
+  }, [activeElectionId]);
+  
   const formatDuration = (s: number): string => {
     const hh = Math.floor(s / 3600).toString().padStart(2, "0");
     const mm = Math.floor((s % 3600) / 60).toString().padStart(2, "0");
@@ -394,24 +458,14 @@ export default function ElectionDashboard() {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to end the voting now?")) {
+    if (!window.confirm("Are you sure you want to end the voting now? This will permanently tally votes and save results.")) {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const electionRef = doc(db, "elections", activeElectionId);
-      await deleteDoc(electionRef);
-      // Firebase triggers will handle deleting subcollections
-      alert("Election successfully ended.");
-    } catch (error) {
-      console.error("Failed to stop voting: ", error);
-      alert("Failed to end the election. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    // Call the tally function to save results before deleting the election
+    await tallyVotesAndSaveOfficials(activeElectionId);
   };
-
+  
   const filteredCandidates = useMemo(() => {
     return allCandidatesFromFirestore.filter((c) => c.position === activePosition);
   }, [allCandidatesFromFirestore, activePosition]);
