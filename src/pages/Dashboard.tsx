@@ -174,9 +174,9 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-gray-100 ">
       {/* ✅ Top Navbar */}
-      <div className="bg-[#007963] text-white flex justify-between items-center px-6 py-4 rounded-t shadow">
+      <div className="bg-[#007963] text-white h-20 flex justify-between items-center px-6 py-4 rounded-t shadow">
         <h1 className="text-xl font-bold">Admin Dashboard</h1>
         <div className="bg-white text-[#007963] p-2 rounded-full">
           <svg

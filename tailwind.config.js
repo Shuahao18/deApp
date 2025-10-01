@@ -11,7 +11,12 @@ module.exports = {
       },
       colors: {
         mainColor: '#125648',
-        bgColor: '#125648B2',
+        hover: "#0e4036",
+        headerColor:"#0d4237",
+        bgColor: '#125648',
+        teader: '#0A705B',
+        object: '#464646'
+
       },
     },
   },

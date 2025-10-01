@@ -292,7 +292,7 @@ const Complaints: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F5F6FA] font-poppins">
       <main>
-        <div className="bg-[#006C5E] px-6 py-4 shadow">
+        <div className="bg-teader px-6 py-4 h-20 shadow">
           <h1 className="text-xl text-white font-semibold">Complaints</h1>
         </div>
 

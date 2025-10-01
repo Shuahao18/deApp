@@ -39,7 +39,7 @@ const router = createHashRouter([
           { path: "complaints", element: <Complaints /> },
           { path: "posting", element: <Posting /> },
           { path: "officials", element: <OffHoa /> },
-
+          {path: "accounting/contribution", element: <Contribution /> },
           { path: "members/memAssoc", element: <MemAssoc /> },
           { path: "members/accReg", element: <AccReg /> },
           { path: "election", element: <Election /> },

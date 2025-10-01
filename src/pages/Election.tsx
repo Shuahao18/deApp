@@ -62,6 +62,10 @@ const resetCandidateForm = () => ({
   imageFile: null as File | null,
 });
 
+// Helper for assigning a display order to positions
+const POSITION_ORDER = ["President", "Vice President", "Treasurer", "Secretary"];
+
+  
 export default function ElectionDashboard() {
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [votingActive, setVotingActive] = useState<boolean>(false);
@@ -103,104 +107,131 @@ export default function ElectionDashboard() {
     const remaining = Math.floor((endTime.getTime() - now.getTime()) / 1000);
     setDurationSeconds(Math.max(0, remaining));
   };
-  
-  // New function to tally votes and save elected officials
-  // New function to tally votes and save elected officials
-// New function to tally votes and save elected officials
-const tallyVotesAndSaveOfficials = async (electionId: string) => {
-    if (!electionId) {
-        console.error("No active election ID provided for tallying.");
-        return;
-    }
+  const hasTallyBeenCalled = React.useRef(false); 
+  // The core function for ending the election
+  // The core function for ending the election
+  const tallyVotesAndSaveOfficials = async (electionId: string) => {
+    if (!electionId) {
+      console.error("No active election ID provided for tallying.");
+      return;
+    }
+    if (hasTallyBeenCalled.current) {
+        console.warn("Tallying is already in progress or has finished. Aborting redundant call.");
+        return; 
+    }
+     hasTallyBeenCalled.current = true;// Prevent double calls
+    // Use a Ref/Flag here if not already implemented to prevent double calls (Highly Recommended)
+    // if (hasTallyBeenCalled.current) return;
+    // hasTallyBeenCalled.current = true;
+    
+    setIsSubmitting(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // Step 1: Clean up old 'elected_officials' collection
+      const oldOfficialsQuery = query(collection(db, "elected_officials"));
+      const oldOfficialsSnapshot = await getDocs(oldOfficialsQuery);
+      
+      oldOfficialsSnapshot.forEach(doc => {
+        batch.delete(doc.ref);
+      });
 
-    setIsSubmitting(true);
-    try {
-        const batch = writeBatch(db);
-        const oldOfficialsQuery = query(collection(db, "elected_officials"));
-        const oldOfficialsSnapshot = await getDocs(oldOfficialsQuery);
-        oldOfficialsSnapshot.forEach(doc => {
-        batch.delete(doc.ref);
-        });
-        // Step 1: Fetch all candidates and votes for the election
-        const candidatesRef = collection(db, "elections", electionId, "candidates");
-        const candidatesSnapshot = await getDocs(candidatesRef);
-        const candidates = candidatesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data() as Candidate
-        }));
+      // Step 2: Fetch all candidates for the current election
+      const candidatesRef = collection(db, "elections", electionId, "candidates");
+      const candidatesSnapshot = await getDocs(candidatesRef);
+      const candidates = candidatesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as Candidate
+      }));
 
-        const votesRef = collection(db, "votes");
-        const votesQuery = query(votesRef, where("eventId", "==", electionId));
-        const votesSnapshot = await getDocs(votesQuery);
-        const allVotes = votesSnapshot.docs.map(doc => doc.data().votes);
+      // Step 3: Fetch all votes for the current election
+      const votesRef = collection(db, "votes");
+      const votesQuery = query(votesRef, where("eventId", "==", electionId));
+      const votesSnapshot = await getDocs(votesQuery);
+      const allVotes = votesSnapshot.docs.map(doc => doc.data().votes);
 
-        // Step 2: Tally votes
-        const voteCounts = new Map<string, number>();
+      // Step 4: Tally votes
+      const voteCounts = new Map<string, number>();
 
-        allVotes.forEach(voteObject => {
-            if (voteObject && typeof voteObject === "object") {
-                Object.keys(voteObject).forEach((position) => {
-                    const candidateId = voteObject[position]?.candidateId;
-                    const candidate = candidates.find(c => c.id === candidateId);
-                    if (candidate) {
-                        voteCounts.set(candidate.id, (voteCounts.get(candidate.id) || 0) + 1);
-                    }
-                });
-            }
-        });
+      allVotes.forEach(voteObject => {
+        if (voteObject && typeof voteObject === "object") {
+          Object.keys(voteObject).forEach((position) => {
+            const candidateId = voteObject[position]?.candidateId;
+            const candidate = candidates.find(c => c.id === candidateId); 
+            if (candidate) {
+              voteCounts.set(candidate.id, (voteCounts.get(candidate.id) || 0) + 1);
+            }
+          });
+        }
+      });
 
-        // Step 3: Determine and save winners
-        const positions = [...new Set(candidates.map(c => c.position))];
-        const electedOfficialsRef = collection(db, "elected_officials");
+      // Step 5: Determine and save winners (new officials)
+      const positions = [...new Set(candidates.map(c => c.position))];
+      const electedOfficialsRef = collection(db, "elected_officials");
 
-        for (const position of positions) {
-            const candidatesForPosition = candidates.filter(c => c.position === position);
-            let winningCandidate = null;
-            let maxVotes = -1;
+      for (const position of positions) {
+        const candidatesForPosition = candidates.filter(c => c.position === position);
+        let winningCandidate: Candidate | null = null;
+        let maxVotes = -1; // Keep -1 to ensure 0 votes is handled
+        let tieCount = 0; // NEW: Counter to track ties
 
-            for (const candidate of candidatesForPosition) {
-                const currentVotes = voteCounts.get(candidate.id) || 0;
-                if (currentVotes > maxVotes) {
-                    maxVotes = currentVotes;
-                    winningCandidate = candidate;
-                }
-            }
+        for (const candidate of candidatesForPosition) {
+          const currentVotes = voteCounts.get(candidate.id) || 0;
+          
+          if (currentVotes > maxVotes) {
+            maxVotes = currentVotes;
+            winningCandidate = candidate;
+            tieCount = 1; // Reset count as we found a new winner
+          } else if (currentVotes === maxVotes && currentVotes > 0) { 
+            // Found a tie with a score greater than 0
+            tieCount++; 
+          }
+        }
 
-            if (winningCandidate) {
-                const winnerDocRef = doc(electedOfficialsRef);
-                batch.set(winnerDocRef, {
-                    name: winningCandidate.name,
-                    position: winningCandidate.position,
-                    termDuration: winningCandidate.termDuration,
-                    photoURL: winningCandidate.photoURL,
-                    votes: maxVotes
-                });
-            }
+        // FINAL CHECK: Save ONLY if there is a single winner (tieCount === 1) 
+        // AND that winner has at least one vote (maxVotes > 0).
+        if (winningCandidate && maxVotes > 0 && tieCount === 1) {
+          const winnerDocRef = doc(electedOfficialsRef);
+          batch.set(winnerDocRef, {
+            name: winningCandidate.name,
+            position: winningCandidate.position,
+            termDuration: winningCandidate.termDuration,
+            photoURL: winningCandidate.photoURL,
+            votes: maxVotes,
+            positionIndex: POSITION_ORDER.indexOf(winningCandidate.position),
+          });
+        } else {
+            console.log(`Skipping saving official for ${position}. Reason: Tie (Count: ${tieCount}) or 0 Votes (Max: ${maxVotes}).`);
         }
-        
-        // --- ADDED: Delete all candidates in the election subcollection
-        candidatesSnapshot.forEach(candidateDoc => {
-            batch.delete(doc(candidatesRef, candidateDoc.id));
-        });
-        
-        // --- ADDED: Delete the main election document
-        const electionDocRef = doc(db, "elections", electionId);
-        batch.delete(electionDocRef);
+      }
+      
+      // Step 6: Delete the current election and its candidates subcollection
+      candidatesSnapshot.forEach(candidateDoc => {
+        batch.delete(doc(candidatesRef, candidateDoc.id));
+      });
+      
+      const electionDocRef = doc(db, "elections", electionId);
+      batch.delete(electionDocRef);
 
-        await batch.commit();
+      // Execute the atomic operation
+      await batch.commit(); 
 
-        console.log("Election ended and officials saved. Election and candidates deleted.");
-        setVotingActive(false);
-        alert("Election has been successfully ended and results are saved!");
+      console.log("Election ended and officials saved. Election and candidates deleted.");
+      setVotingActive(false);
+      alert("Election has been successfully ended and results are saved!");
+      
+      hasTallyBeenCalled.current = false;
+      // OPTIONAL: Reload the dashboard to clear the UI after success
+      window.location.reload(); 
 
-    } catch (error) {
-        console.error("Failed to tally votes or save officials:", error);
-        alert("An error occurred while ending the election.");
-    } finally {
-        setIsSubmitting(false);
-    }
-};
-
+    } catch (error) {
+      console.error("Failed to tally votes or save officials:", error);
+      alert("An error occurred while ending the election.");
+    } finally {
+      setIsSubmitting(false);
+      // hasTallyBeenCalled.current = false; // Reset the flag
+    }
+  };
   // Fetch total voters from Firestore
   useEffect(() => {
     const fetchTotalVoters = async () => {
@@ -257,27 +288,28 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
   }, []);
 
   // Timer useEffect for voting duration
-  useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
-    if (votingActive) {
-      timer = setInterval(() => {
-        setDurationSeconds(prevSeconds => {
-          if (prevSeconds <= 1) {
-            clearInterval(timer!);
-            // Tally votes when timer ends
-            if (activeElectionId) {
-              tallyVotesAndSaveOfficials(activeElectionId);
-            }
-            return 0;
-          }
-          return prevSeconds - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [votingActive, activeElectionId]);
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (votingActive) {
+      timer = setInterval(() => {
+        setDurationSeconds(prevSeconds => {
+          if (prevSeconds <= 1) {
+            // Tally votes when timer ends
+            if (activeElectionId) {
+              tallyVotesAndSaveOfficials(activeElectionId); // This is now protected by the Ref
+            }
+            return 0;
+          }
+          return prevSeconds - 1;
+        });
+      }, 1000);
+    }
+    
+    // IMPORTANT: Cleanup must be here to prevent interval from running twice
+    return () => { 
+      if (timer) clearInterval(timer);
+    };
+  }, [votingActive, activeElectionId]);
 
   // Consolidated useEffect for Candidates and Votes
   useEffect(() => {
@@ -380,14 +412,17 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
   const handleAddCandidateToList = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCandidate.name || !currentCandidate.position || !currentCandidate.imageFile) {
-      alert("Please fill out all candidate fields.");
+      alert("Please fill out all candidate fields and upload an image.");
       return;
     }
 
     setIsSubmitting(true);
     let photoURL = "";
     try {
-      const storageRef = ref(storage, `candidates/${currentCandidate.imageFile.name}`);
+      // Create a unique file name to avoid collisions
+      const uniqueFileName = `${Date.now()}_${currentCandidate.imageFile.name}`;
+      const storageRef = ref(storage, `candidates/${uniqueFileName}`);
+      
       await uploadBytes(storageRef, currentCandidate.imageFile);
       photoURL = await getDownloadURL(storageRef);
 
@@ -417,6 +452,18 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
     setIsSubmitting(true);
     try {
       const electionEndDate = new Date(`${electionDetails.date}T${electionDetails.endTime}`);
+      const electionStartDate = new Date(`${electionDetails.date}T${electionDetails.startTime}`);
+
+      if (electionEndDate.getTime() <= electionStartDate.getTime()) {
+          alert("End time must be after start time.");
+          setIsSubmitting(false);
+          return;
+      }
+      if (electionEndDate.getTime() <= Date.now()) {
+          alert("Election must be scheduled in the future.");
+          setIsSubmitting(false);
+          return;
+      }
 
       // Create a batch to add the election and all candidates in one atomic operation
       const batch = writeBatch(db);
@@ -444,6 +491,10 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
       setElectionDetails(resetElectionForm());
       setCandidatesList([]);
       setShowForm(false);
+      
+      // Force reload the election listener
+      setActiveElectionId(newElectionRef.id); 
+
     } catch (error) {
       console.error("Error saving election: ", error);
       alert("Failed to save election. Please try again.");
@@ -472,23 +523,23 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
 
   const allPositions = useMemo(() => {
     const positions = allCandidatesFromFirestore.map((c) => c.position);
-    return [...new Set(positions)];
+    return [...new Set(positions)].sort((a, b) => POSITION_ORDER.indexOf(a) - POSITION_ORDER.indexOf(b));
   }, [allCandidatesFromFirestore]);
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <div className="bg-emerald-800 h-20 flex items-center px-8">
+      <div className="bg-teader h-20 flex items-center px-8">
         <h1 className="text-3xl font-extrabold text-white">Election Module</h1>
         <div className="ml-auto flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white">
-            J
+            A
           </div>
         </div>
       </div>
 
       <div className="container mx-auto px-6 py-8">
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          <div className="bg-gray-800 text-gray-100 px-6 py-4 flex items-center justify-between">
+          <div className="bg-object text-gray-100 px-6 py-4 flex items-center justify-between">
             <div className="font-semibold">Election Status</div>
             <div className="flex items-center gap-3">
               <select
@@ -502,7 +553,7 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
               </select>
               <button
                 onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 bg-emerald-700 text-white px-3 py-1 rounded shadow"
+                className="flex items-center gap-2 bg-emerald-700 text-white px-3 py-1 rounded shadow disabled:bg-gray-500"
                 disabled={electionAlreadyExists}
               >
                 <FiPlus /> New Election
@@ -562,7 +613,7 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
             </div>
 
             <div className="mt-8 bg-white border rounded shadow-sm flex">
-              <aside className="w-48 bg-gray-800 text-white p-6">
+              <aside className="w-48 bg-object text-white p-6">
                 <nav className="flex flex-col gap-6 text-sm">
                   {allPositions.map((position) => (
                     <button
@@ -571,7 +622,7 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                       className={`text-left ${
                         activePosition === position
                           ? "font-bold text-emerald-300"
-                          : "text-white"
+                          : "text-white hover:text-emerald-300/80 transition"
                       }`}
                     >
                       {position}
@@ -586,13 +637,15 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                     Voting Count Election {year}
                   </h2>
                   <div>
-                    <button
-                      onClick={handleStopVoting}
-                      className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded"
-                      disabled={!votingActive || isSubmitting}
-                    >
-                      <FiXCircle /> Stop Voting
-                    </button>
+                    {votingActive && (
+                        <button
+                          onClick={handleStopVoting}
+                          className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
+                          disabled={!votingActive || isSubmitting}
+                        >
+                          <FiXCircle /> Stop Voting
+                        </button>
+                    )}
                   </div>
                 </div>
 
@@ -602,21 +655,22 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                       {filteredCandidates.map((c) => (
                         <div
                           key={c.id}
-                          className="flex flex-col items-center gap-4"
+                          className="flex flex-col items-center gap-4 bg-white p-4 rounded-lg shadow"
                         >
                           {c.photoURL ? (
                             <img
                               src={c.photoURL}
                               alt={c.name}
-                              className="w-40 h-40 rounded-full object-cover"
+                              className="w-40 h-40 rounded-full object-cover border-4 border-emerald-500"
                             />
                           ) : (
                             <div className="w-40 h-40 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-500">
                               No Image
                             </div>
                           )}
-                          <div className="text-lg font-semibold">{c.name}</div>
-                          <div className="w-36 bg-gray-200 rounded-md py-3 text-2xl font-bold">
+                          <div className="text-lg font-bold">{c.name}</div>
+                          <div className="text-sm text-gray-600 font-medium">{c.position}</div>
+                          <div className="w-36 bg-emerald-100 border border-emerald-300 rounded-md py-3 text-2xl font-bold text-emerald-800">
                             {c.votes}
                           </div>
                           <div className="text-sm text-gray-500">Votes</div>
@@ -624,8 +678,15 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center text-gray-500">
-                      Walang kandidato para sa posisyon na ito.
+                    <div className="text-center text-gray-500 p-8">
+                      {votingActive ? (
+                          <>
+                            <p className="text-xl font-medium">Walang kandidato para sa posisyon na ito.</p>
+                            <p className="text-sm mt-2">Pumili ng ibang posisyon sa kaliwa.</p>
+                          </>
+                      ) : (
+                          <p className="text-xl font-medium">Walang aktibong eleksyon. Pindutin ang "New Election" para magsimula.</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -639,8 +700,11 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 relative">
             <button
-              onClick={() => setShowForm(false)}
-              className="absolute top-2 right-2 text-gray-600 hover:text-black"
+              onClick={() => {
+                  setShowForm(false);
+                  setCandidatesList([]); // Clear candidates if form is closed
+              }}
+              className="absolute top-2 right-2 text-gray-600 hover:text-black text-2xl"
             >
               ✕
             </button>
@@ -650,13 +714,13 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
             </h2>
 
             <div className="mb-6">
-              <h3 className="font-semibold mb-3">Election Details</h3>
+              <h3 className="font-semibold mb-3 text-lg text-emerald-700">Election Details</h3>
               <div className="grid grid-cols-2 gap-6">
                 <div className="col-span-2">
-                  <label className="block text-sm">Election Title</label>
+                  <label className="block text-sm font-medium">Election Title</label>
                   <input
                     type="text"
-                    className="w-full border rounded px-3 py-2 mt-1"
+                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
                     name="title"
                     value={electionDetails.title}
                     onChange={handleElectionChange}
@@ -664,10 +728,10 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm">Election Date</label>
+                  <label className="block text-sm font-medium">Election Date</label>
                   <input
                     type="date"
-                    className="w-full border rounded px-3 py-2 mt-1"
+                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
                     name="date"
                     value={electionDetails.date}
                     onChange={handleElectionChange}
@@ -675,20 +739,20 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm">Voting Time Duration</label>
+                  <label className="block text-sm font-medium">Voting Time Duration</label>
                   <div className="flex gap-2 mt-1">
                     <input
                       type="time"
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-2 focus:border-emerald-500"
                       name="startTime"
                       value={electionDetails.startTime}
                       onChange={handleElectionChange}
                       disabled={electionAlreadyExists}
                     />
-                    <span className="self-center">to</span>
+                    <span className="self-center font-medium">to</span>
                     <input
                       type="time"
-                      className="w-full border rounded px-3 py-2"
+                      className="w-full border rounded px-3 py-2 focus:border-emerald-500"
                       name="endTime"
                       value={electionDetails.endTime}
                       onChange={handleElectionChange}
@@ -699,47 +763,45 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
               </div>
             </div>
 
-            <div>
-              <h3 className="font-semibold mb-3">Candidates</h3>
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm">Candidate Name</label>
+            <div className="border p-4 rounded-lg bg-gray-50">
+              <h3 className="font-semibold mb-3 text-lg text-emerald-700">Add Candidates</h3>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium">Candidate Name</label>
                   <input
                     type="text"
-                    className="w-full border rounded px-3 py-2 mt-1"
+                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
                     name="name"
                     value={currentCandidate.name}
                     onChange={handleCandidateChange}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm">Position</label>
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium">Position</label>
                   <select
-                    className="w-full border rounded px-3 py-2 mt-1"
+                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
                     name="position"
                     value={currentCandidate.position}
                     onChange={handleCandidateChange}
                   >
-                    <option>President</option>
-                    <option>Vice President</option>
-                    <option>Treasurer</option>
-                    <option>Secretary</option>
+                    {POSITION_ORDER.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm">Term Duration</label>
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium">Term Duration</label>
                   <input
                     type="text"
-                    placeholder="00 Years"
-                    className="w-full border rounded px-3 py-2 mt-1"
+                    placeholder="e.g., 2 Years"
+                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
                     name="termDuration"
                     value={currentCandidate.termDuration}
                     onChange={handleCandidateChange}
                   />
                 </div>
-                <div className="relative flex items-center justify-center border-2 border-dashed rounded h-28">
+                <div className="col-span-1 relative flex items-center justify-center border-2 border-dashed rounded h-20 bg-white hover:border-emerald-500 transition">
                   <input
                     type="file"
+                    accept="image/*"
                     className="absolute inset-0 opacity-0 cursor-pointer"
                     onChange={handleFileChange}
                   />
@@ -750,40 +812,52 @@ const tallyVotesAndSaveOfficials = async (electionId: string) => {
                       className="w-full h-full object-cover rounded"
                     />
                   ) : (
-                    <span className="text-gray-500">+ Add Image</span>
+                    <span className="text-gray-500 text-sm">Tap to Add Image</span>
                   )}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleAddCandidateToList}
-                disabled={isSubmitting}
-                className="mt-4 bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 disabled:bg-gray-400"
+                disabled={isSubmitting || !currentCandidate.name || !currentCandidate.imageFile}
+                className="mt-4 bg-emerald-700 text-white px-4 py-2 rounded hover:bg-emerald-800 disabled:bg-gray-400 text-sm"
               >
-                {isSubmitting ? "Uploading..." : "+ Add Candidate"}
+                {isSubmitting ? "Uploading..." : "+ Add Candidate to List"}
               </button>
             </div>
 
             {candidatesList.length > 0 && (
-              <div className="mt-6 p-4 border rounded">
-                <h4 className="font-semibold mb-2">Candidates to be Saved:</h4>
-                <ul className="list-disc list-inside">
-                  {candidatesList.map((c, index) => (
-                    <li key={index}>
-                      {c.name} - {c.position} ({c.termDuration || "N/A"})
-                    </li>
-                  ))}
-                </ul>
+              <div className="mt-6 p-4 border rounded bg-white">
+                <h4 className="font-semibold mb-2">Candidates Ready for Election:</h4>
+                <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="font-bold">Name</div>
+                    <div className="font-bold">Position</div>
+                    <div className="font-bold">Term</div>
+                    <div className="font-bold">Action</div>
+                    {candidatesList.map((c, index) => (
+                        <React.Fragment key={index}>
+                            <div>{c.name}</div>
+                            <div>{c.position}</div>
+                            <div>{c.termDuration || "N/A"}</div>
+                            <button 
+                                onClick={() => setCandidatesList(prev => prev.filter((_, i) => i !== index))}
+                                className="text-red-500 hover:text-red-700 text-xs text-left"
+                            >
+                                Remove
+                            </button>
+                        </React.Fragment>
+                    ))}
+                </div>
               </div>
             )}
 
-            <div className="mt-6 text-right">
+            <div className="mt-6 text-right pt-4 border-t">
               <button
                 onClick={handleSaveElection}
-                disabled={isSubmitting || !candidatesList.length}
+                disabled={isSubmitting || !candidatesList.length || !electionDetails.title || !electionDetails.date}
                 className="bg-emerald-700 text-white px-6 py-2 rounded-lg shadow hover:bg-emerald-800 disabled:bg-gray-400"
               >
-                {isSubmitting ? "Saving Election..." : "Save Election"}
+                {isSubmitting ? "Saving Election..." : "Save and Start Election"}
               </button>
             </div>
           </div>

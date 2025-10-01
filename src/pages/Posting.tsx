@@ -626,10 +626,13 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 bg-gray-100 min-h-screen p-6">
+    <div className="bg-teader p-6 h-20 "> 
+          <h1 className="text-2xl text-white font-semibold">HOA Officials</h1>
+        
+    <div className="flex flex-col lg:flex-row m-8 gap-6 bg-gray-100 min-h-screen ">
       {/* Left Column - Posts */}
       <div className="flex flex-col w-full lg:w-2/3">
-        <h1 className="text-2xl font-bold text-green-800 mb-4">All Entries</h1>
+        
 
         {posts.length === 0 && (
           <div className="text-gray-500 text-center mt-8">No posts yet</div>
@@ -829,8 +832,11 @@ export default function App() {
 
       {/* Right Column - Create Post */}
       {isAdmin && (
-        <div className="w-full lg:w-1/3 bg-white p-6 rounded shadow h-fit">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Create post</h2>
+        <div className="w-full lg:w-1/3 bg-white rounded shadow h-fit">
+  {/* 🔹 Black Header */}
+  <div className="bg-object text-white px-6 py-3 rounded-t">
+    <h2 className="text-lg font-semibold">Create post</h2>
+  </div>
 
           <div className="flex items-center gap-3 mb-4">
             <img
@@ -905,7 +911,7 @@ export default function App() {
 
           <div className="flex justify-end gap-2 mt-4 border-t pt-4">
             <button
-              className="px-6 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50"
+              className="px-6 py-2 bg-object text-white rounded hover:bg-gray-300 disabled:opacity-50"
               onClick={handleCancelPost}
               disabled={isUploading}
             >
@@ -916,8 +922,8 @@ export default function App() {
               disabled={isUploading || (!content.trim() && !fileToUpload)}
               className={`px-6 py-2 rounded ${
                 isUploading || (!content.trim() && !fileToUpload)
-                  ? "bg-blue-300 cursor-not-allowed text-white"
-                  : "bg-blue-600 hover:bg-blue-700 text-white"
+                  ? "bg-green-300 cursor-not-allowed text-white"
+                  : "bg-teader hover:bg-blue-700 text-white"
               }`}
             >
               {isUploading ? "Uploading..." : "Upload"}
@@ -963,6 +969,7 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
