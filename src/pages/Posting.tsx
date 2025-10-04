@@ -157,7 +157,7 @@ export default function App() {
     try {
       const adminDoc = await getDoc(doc(db, "admin", uid));
       if (adminDoc.exists()) {
-        return adminDoc.data().accountRole || "Admin";
+        return adminDoc.data().role || "Admin";
       }
       return fallback || "HOA Member";
     } catch (e) {

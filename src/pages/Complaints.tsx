@@ -147,7 +147,7 @@ const Complaints: React.FC = () => {
 
             let snapshot: QuerySnapshot<DocumentData>;
             const isUserAdmin =
-                adminSnap.exists() && adminSnap.data()?.accountRole === "admin";
+                adminSnap.exists() && adminSnap.data()?.role === "Admin";
             const complaintsCollection = collection(db, "complaints");
 
             // Define Base Query

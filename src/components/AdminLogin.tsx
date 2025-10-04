@@ -32,7 +32,7 @@ const AdminLogin: React.FC = () => {
       const userData = docSnap.data();
 
       // 🔹 3. Check role or flag
-      if (userData.accountRole !== "admin") {
+      if (userData.role !== "Admin") {
         await signOut(auth); // kick them out
         throw new Error("Access denied. Only Admins can log in here.");
       }

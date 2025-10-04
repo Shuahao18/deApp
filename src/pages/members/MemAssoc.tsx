@@ -194,7 +194,7 @@ const MemAssoc: React.FC = () => {
       if (user) {
         const adminDocRef = doc(db, "admin", user.uid);
         const adminSnap = await getDoc(adminDocRef);
-        if (adminSnap.exists() && adminSnap.data()?.accountRole === "admin") {
+        if (adminSnap.exists() && adminSnap.data()?.role === "Admin") {
           setIsAdmin(true);
         } else {
           setIsAdmin(false);

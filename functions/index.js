@@ -28,7 +28,7 @@ exports.deleteUser = functions.https.onCall(async (data, context) => {
   }
 
   // 3. 📝 Optional: Check for a specific role field if your admin documents have one
-  const adminRole = adminDoc.data()?.accountRole;
+  const adminRole = adminDoc.data()?.role;
   if (adminRole !== "admin") {
       throw new functions.https.HttpsError(
         "permission-denied",
