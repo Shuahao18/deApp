@@ -98,7 +98,16 @@ function FinancialOverview({ data }: { data: any[] }) {
                     <LineChart data={data}>
                         <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                        <YAxis tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
+                        
+                        {/* ✅ Y-Axis: Domain set to [0, 20000] with 5 ticks for 5k interval */}
+                        <YAxis 
+                            tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`} 
+                            tickLine={false} 
+                            axisLine={false}
+                            domain={[0, 20000]} // I-set ang domain mula 0 hanggang 20000 (20k)
+                            tickCount={5}      // 5 ticks: 0k, 5k, 10k, 15k, 20k
+                        />
+                        
                         <Tooltip formatter={(value: any) => [`₱${value.toLocaleString()}`, "Amount"]} />
                         <Legend wrapperStyle={{ paddingTop: 20 }} verticalAlign="bottom" align="center" />
                         <Line
@@ -127,7 +136,6 @@ function FinancialOverview({ data }: { data: any[] }) {
 }
 
 // InfoCard Component for Bottom Section (Modified to accept ReactNode for footerContent)
-// This is necessary to handle the custom dropdown in FullyPaidMembersCard
 function InfoCard({ title, children, footer, footerContent }: { title: string; children: React.ReactNode; footer?: string; footerContent?: React.ReactNode }) {
     const isViewMore = footer === "View More";
     
@@ -159,10 +167,7 @@ function InfoCard({ title, children, footer, footerContent }: { title: string; c
     );
 }
 
-// --- ✅ NEW FUNCTIONAL COMPONENT: Fully Paid Members Card ---
-/**
- * Fetches the count of unique members who made a contribution for the selected month.
- */
+// --- Fully Paid Members Card (No changes needed here) ---
 function FullyPaidMembersCard() {
     // 1. MONTH OPTIONS: Inayos ko na para kumpleto at tama ang buwan/taon
     const MONTH_OPTIONS = [
@@ -282,18 +287,18 @@ export default function Dashboard() {
     const [activeMembers, setActiveMembers] = useState(0); // Used initial hardcoded value for quick load
     const [inactiveMembers, setInactiveMembers] = useState(7); // Used initial hardcoded value for quick load
     const [newMembers, setNewMembers] = useState(0); // Used initial hardcoded value for quick load
-    // Initial value matching the provided image until data loads
-    const [hoaBalance, setHoaBalance] = useState<number | null>(90); // Used initial hardcoded value for quick load
+    
+    // Initial value set to 1,000,000 to match the Figma image (This was the previous change)
+    const [hoaBalance, setHoaBalance] = useState<number | null>(1000000); 
+    
     const [financialData, setFinancialData] = useState<any[]>([]);
     // Data matching the provided image for placeholders
     const [newComplaints, setNewComplaints] = useState(2);
     const [totalComplaints, setTotalComplaints] = useState(10);
-    // ⚠️ Removed fullyPaidMembers state hook dito dahil nasa loob na siya ng FullyPaidMembersCard component
-    // const [fullyPaidMembers, setFullyPaidMembers] = useState(29); 
 
 
     /**
-     * ✅ Function to calculate the current HOA Balance: Total Contributions - Total Expenses.
+     * Function to calculate the current HOA Balance: Total Contributions - Total Expenses.
      */
     const calculateHOABalance = async () => {
         try {
@@ -322,8 +327,8 @@ export default function Dashboard() {
 
         } catch (error) {
             console.error("Error calculating HOA Balance:", error);
-            // Fallback to the hardcoded initial value if the calculation fails
-            setHoaBalance(90); // Fallback to initial value from image
+            // Fallback to the initial value if the calculation fails
+            setHoaBalance(1000000); 
         }
     };
 
@@ -352,8 +357,7 @@ export default function Dashboard() {
                 // Sort events by start date
                 eventsFromDB.sort((a, b) => a.start.getTime() - b.start.getTime());
 
-                // ✅ LOGIC CHECKED: Filter to show only upcoming events
-                // An event is considered 'upcoming' if its end time is NOW or in the FUTURE.
+                // Filter to show only upcoming events
                 const now = new Date();
                 const upcomingEvents = eventsFromDB.filter(event => event.end.getTime() >= now.getTime());
 
@@ -391,9 +395,6 @@ export default function Dashboard() {
                 );
                 setNewMembers(newMembersSnapshot.size);
 
-                // --- Optional: Fetch Complaints and Fully Paid Members count if those collections exist ---
-                // ... (existing placeholder logic or future implementation)
-
             } catch (error) {
                 console.error("Error fetching analytics:", error);
             }
@@ -401,7 +402,6 @@ export default function Dashboard() {
 
         const fetchFinanceOverview = async () => {
             try {
-                // Using 'contributions' instead of 'collections' to match the Firebase image
                 const collectionsSnap = await getDocs(collection(db, "contributions"));
                 const expensesSnap = await getDocs(collection(db, "expenses"));
 
@@ -434,10 +434,11 @@ export default function Dashboard() {
                         .toUpperCase();
                 };
 
+                // --- Collections Logic (Used 'transactionDate' or fallback) ---
                 collectionsSnap.forEach((doc) => {
                     const data = doc.data();
-                    // Assuming the timestamp field in 'contributions' is named 'transactionDate' or similar
-                    const timestampField = data.timestamp || data.transactionDate;
+                    // Assumed transactionDate is the primary timestamp field
+                    const timestampField = data.transactionDate || data.timestamp; 
                     if (!timestampField || !data.amount) return;
 
                     const month = parseMonth(timestampField);
@@ -446,11 +447,16 @@ export default function Dashboard() {
                     }
                 });
 
+                // --- ✅ ADJUSTED Expenses Logic to use 'transactionDate' based on screenshot ---
                 expensesSnap.forEach((doc) => {
                     const data = doc.data();
-                    // Assuming the date field in 'expenses' is named 'timestamp'
-                    if (!data.timestamp || !data.amount) return;
-                    const month = parseMonth(data.timestamp);
+                    
+                    // Ginamit ang 'transactionDate' na nakita sa inyong Firebase screenshot
+                    const timestampField = data.transactionDate; 
+                    
+                    if (!timestampField || !data.amount) return;
+                    
+                    const month = parseMonth(timestampField);
                     if (monthlyMap[month]) {
                         monthlyMap[month].expenses += Number(data.amount) || 0;
                     }
@@ -532,8 +538,8 @@ export default function Dashboard() {
                             label="Current HOA Account Balance"
                             value={
                                 hoaBalance !== null
-                                            ? `₱${hoaBalance.toLocaleString()}`
-                                            : "Loading..."
+                                        ? `₱${hoaBalance.toLocaleString()}`
+                                        : "Loading..."
                             }
                             type="balance"
                         />

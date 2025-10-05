@@ -15,8 +15,8 @@ module.exports = {
         headerColor:"#0d4237",
         bgColor: '#125648',
         teader: '#0A705B',
-        object: '#464646'
-
+        object: '#464646',
+        white: '#FFFFFF'
       },
     },
   },

@@ -4,8 +4,10 @@ import { auth, db } from "../../Firebase"; // Assuming correct path to Firebase 
 import { collection, getDocs, setDoc, doc, updateDoc, query, where, orderBy } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable'; 
+
+// --- JSDPF IMPORTS: I-COMMENT OUT PARA GAMITIN ANG require() SA LOOB NG FUNCTION ---
+// import 'jspdf-autotable'; 
+// import { jsPDF } from 'jspdf'; 
 
 /* ---------------- Reusable Components (Keep as is) ---------------- */
 
@@ -125,8 +127,9 @@ interface MemberData {
     email: string;
     civilStatus?: string;
     role?: string;
-    // Tiyakin na ang status ay isa sa mga ito
     status: "Active" | "Inactive" | "New" | "Deleted"; 
+    // IDAGDAG ITO PARA MA-RESOLVE ANG TS7053 ERROR (para sa dynamic key access)
+    [key: string]: any; 
 }
 
 interface NewMemberForm {
@@ -201,14 +204,13 @@ const getNextAccNo = async (): Promise<string> => {
         const q = query(membersRef, orderBy("accNo", "desc"));
         const snapshot = await getDocs(q);
         
-        // Iba ang logic sa nauna. Kukunin ang last accNo sa collection.
         // Hahanapin ang pinakamalaking integer accNo.
         let maxAccNo = 0;
         
         snapshot.docs.forEach(doc => {
             const accNo = doc.data().accNo;
             if (accNo) {
-                // Tiyakin na num lang ang kinukuha, at hindi string + number
+                // Tiyakin na num lang ang kinukuha
                 const num = parseInt(accNo, 10); 
                 if (!isNaN(num) && num > maxAccNo) {
                     maxAccNo = num;
@@ -217,7 +219,7 @@ const getNextAccNo = async (): Promise<string> => {
         });
 
         const nextNumber = maxAccNo + 1;
-        // Palitan ang 3 depende sa number of digits na kailangan
+        // Palitan ang 4 depende sa number of digits na kailangan
         return String(nextNumber).padStart(4, "0"); 
     } catch (error) {
         console.error("Error generating next account number:", error);
@@ -241,11 +243,12 @@ const AccReg = () => {
     const [isEditing, setIsEditing] = useState(false); 
     const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
     
-    // State for the PDF Export Modal (based on the image you provided)
+    // STATES PARA SA PDF EXPORT:
     const [showExportModal, setShowExportModal] = useState(false); 
+    const [exportFileName, setExportFileName] = useState('HOA_Members_Registry');
     const [selectedColumns, setSelectedColumns] = useState(
-    COLUMN_KEYS.map(col => col.key) // Dito nagtatapos ang useState
-);
+        COLUMN_KEYS.map(col => col.key)
+    );
 
     const membersPerPage = 10;
 
@@ -282,6 +285,25 @@ const AccReg = () => {
     useEffect(() => {
         fetchMembers();
     }, []);
+    
+    // --- FILTERS/PAGINATION ---
+    const filteredMembers = members
+        .filter(member => {
+            const targetStatus = viewMode === 'active' ? 'Deleted' : '';
+            return viewMode === 'active' ? member.status !== targetStatus : member.status === 'Deleted';
+        })
+        .filter(member =>
+            member.firstname.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            member.surname.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            member.accNo.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+
+    const activeCount = members.filter(m => m.status !== 'Deleted').length;
+    const deletedCount = members.filter(m => m.status === 'Deleted').length;
+    
+    const totalPages = Math.ceil(filteredMembers.length / membersPerPage);
+    const startIndex = (currentPage - 1) * membersPerPage;
+    const currentMembers = filteredMembers.slice(startIndex, startIndex + membersPerPage);
 
     // --- SOFT DELETE FUNCTION ---
     const handleDeleteMember = async (memberId: string, memberName: string) => {
@@ -296,14 +318,13 @@ const AccReg = () => {
         try {
             const memberRef = doc(db, "members", memberId);
             await updateDoc(memberRef, {
-                status: "Deleted", // 👈 Tiyakin na "Deleted" ang value na ginamit
+                status: "Deleted", 
             });
 
             alert(`${memberName}'s account has been successfully marked as Deleted.`);
             fetchMembers();
         } catch (error) {
             console.error("Error soft-deleting member:", error);
-            // Sa puntong ito, ang error ay laging permissions.
             alert("Failed to soft-delete account. Check console and Firebase Security Rules. (Permissions Issue)");
         }
     };
@@ -321,7 +342,7 @@ const AccReg = () => {
         try {
             const memberRef = doc(db, "members", memberId);
             await updateDoc(memberRef, {
-                status: "Active", // 👈 Iba-balik sa "Active"
+                status: "Active", 
             });
 
             alert(`${memberName}'s account has been successfully Restored.`);
@@ -334,10 +355,9 @@ const AccReg = () => {
         }
     };
     
-    // --- EDIT HANDLERS ---
+    // --- EDIT HANDLERS (Same as before) ---
 
     const handleEditClick = (member: MemberData) => {
-        // Set form state from the member data (excluding password/confirm)
         setForm({
             surname: member.surname || '',
             firstname: member.firstname || '',
@@ -350,7 +370,7 @@ const AccReg = () => {
             role: member.role || 'Member',
             password: '', 
             confirm: '', 
-            status: member.status, // Kasama ang current status sa form para ma-edit
+            status: member.status,
         } as NewMemberForm); 
 
         setCurrentMemberId(member.id);
@@ -369,7 +389,6 @@ const AccReg = () => {
             return;
         }
 
-        // Collect ALL fields for Admin/Officer update (ito ang dapat na allowed ng isPrivileged() rules)
         const memberData = {
             surname: form.surname,
             firstname: form.firstname,
@@ -380,24 +399,19 @@ const AccReg = () => {
             email: form.email,
             civilStatus: form.civilStatus,
             role: form.role,
-            status: form.status, // Kasama ang status sa update (critical)
+            status: form.status, 
         };
 
         try {
             const memberRef = doc(db, "members", currentMemberId);
             await updateDoc(memberRef, memberData);
             
-            // Kuhanin ang existing accNo, dahil hindi ito kasama sa form
             const accNo = members.find(m => m.id === currentMemberId)?.accNo;
 
-            // Update secondary collections
             if (form.role === "Admin") {
                 await setDoc(doc(db, "admin", currentMemberId), { ...memberData, accNo }, { merge: true });
             } else if (form.role === "Officer") {
                 await setDoc(doc(db, "elected_officials", currentMemberId), { ...memberData, accNo }, { merge: true });
-            } else {
-                 // Remove from secondary collections if role is reduced to Member
-                 // Tiyakin lang na walang security rule error dito (optional: add delete logic if needed)
             }
             
             alert(`Account for ${form.firstname} ${form.surname} updated successfully!`);
@@ -405,14 +419,14 @@ const AccReg = () => {
             setIsEditing(false);
             setCurrentMemberId(null);
             setForm(defaultForm);
-            fetchMembers(); // Re-fetch data
+            fetchMembers();
         } catch (err: any) {
             console.error("Error updating member:", err);
             setErrorMessage(err.message || "Failed to update account. Check console and Security Rules.");
         }
     };
     
-    // --- CREATE HANDLER ---
+    // --- CREATE HANDLER (Same as before) ---
     const handleCreateAccount = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrorMessage(null);
@@ -459,11 +473,11 @@ const AccReg = () => {
                 email: form.email,
                 civilStatus: form.civilStatus,
                 role: form.role,
-                status: form.status || "New", // 👈 Tiyakin na "New" ang status
+                status: form.status || "New",
                 accNo: newAccNo,
             };
 
-            // STEP 2: PRIMARY SAVE (SA MEMBERS collection, using Auth UID as Document ID)
+            // STEP 2: PRIMARY SAVE 
             await setDoc(doc(db, "members", uid), memberData);
 
             // STEP 3: SECONDARY SAVE 
@@ -495,260 +509,269 @@ const AccReg = () => {
         }
     };
     
-    // --- PDF EXPORT LOGIC ---
-    // Define a type for the elements we are storing
-interface HiddenElement {
-    element: HTMLElement;
-    originalDisplay: string;
-} 
-
-
-const handleExportPDF = async () => {
-    // Tiyakin na ang container ng inyong table ay may id="members-table-container"
-    const input = document.getElementById('members-table-container');
-
-    if (!input) {
-        alert('Error: Table element not found for PDF export.');
-        return;
-    }
-
-    const table = input.querySelector('table');
-    if (!table) {
-        alert('Error: Table element not found for PDF export.');
-        return;
-    }
+    // --- PDF EXPORT LOGIC FUNCTIONS ---
     
-    // Ang mga columns na itatago (1-based index):
-    const columnsToHide = [12, 14]; 
-    
-    // Explicitly define the type of hideStyles as the interface we created
-    const hideStyles: HiddenElement[] = []; 
-
-    // Temporary hiding the columns
-    try {
-        columnsToHide.forEach(index => {
-            // Itago ang header (th)
-            // Use 'querySelector' at i-cast sa 'HTMLTableCellElement' o 'HTMLElement'
-            const th = table.querySelector(`thead tr th:nth-child(${index})`) as HTMLTableCellElement | null;
-            if (th) {
-                hideStyles.push({ 
-                    element: th, 
-                    originalDisplay: th.style.display 
-                });
-                th.style.display = 'none';
-            }
-
-            // Itago ang lahat ng body cells (td)
-            const tds = table.querySelectorAll(`tbody tr td:nth-child(${index})`);
-            tds.forEach(element => {
-                // Type-cast the generic Element to an HTMLElement
-                const td = element as HTMLTableCellElement;
-                if (td) {
-                    hideStyles.push({ 
-                        element: td, 
-                        originalDisplay: td.style.display 
-                    });
-                    td.style.display = 'none';
-                }
-            });
-        });
-
-        // Capture the table content
-        const canvas = await html2canvas(input, { scale: 2 });
-        const imgData = canvas.toDataURL('image/png');
-        
-        // Generate the PDF (Multi-page logic remains the same)
-        const pdf = new jsPDF('l', 'mm', 'a4'); 
-        const imgWidth = 297; 
-        const pageHeight = 210; 
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let heightLeft = imgHeight;
-        let position = 0;
-        
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-        
-        while (heightLeft >= 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
-        }
-        
-        pdf.save('HOA_Members_Registry.pdf');
-        
-    } catch (error) {
-        console.error("PDF Export Error:", error);
-        alert("Failed to export PDF. Check console for details.");
-    } finally {
-        // ALWAYS restore the hidden columns
-        hideStyles.forEach(({ element, originalDisplay }) => {
-            element.style.display = originalDisplay;
-        });
-    }
-};
-    // --- Filtering and Pagination Logic ---
-    const activeMembers = members.filter(m => m.status !== 'Deleted');
-    const deletedMembers = members.filter(m => m.status === 'Deleted');
-    const membersToFilter = viewMode === 'active' ? activeMembers : deletedMembers;
-
-    const filteredMembers = membersToFilter.filter((m) => {
-        const q = searchQuery.toLowerCase();
-        // The optional chaining (?.) helps prevent runtime errors if a field is null/undefined
-        return (
-            m.surname?.toLowerCase().includes(q) ||
-            m.firstname?.toLowerCase().includes(q) ||
-            m.middlename?.toLowerCase().includes(q) ||
-            m.email?.toLowerCase().includes(q) ||
-            m.contact?.toLowerCase().includes(q) ||
-            m.accNo?.toLowerCase().includes(q) ||
-            m.address?.toLowerCase().includes(q)
+    // Function 1: I-toggle ang isang column
+    const handleToggleColumn = (key: string) => {
+        setSelectedColumns(prev => 
+            prev.includes(key) ? prev.filter(c => c !== key) : [...prev, key]
         );
-    });
+    };
 
-    // Ensure we start from page 1 if the filter changes significantly
-    useEffect(() => {
-        if (currentPage > Math.ceil(filteredMembers.length / membersPerPage) && filteredMembers.length > 0) {
-            setCurrentPage(1);
+    // Function 2: Select All / Deselect All
+    const handleToggleAllColumns = () => {
+        const totalColumns = COLUMN_KEYS.length; 
+        
+        if (selectedColumns.length === totalColumns) {
+            setSelectedColumns([]); // Deselect All
+        } else {
+            setSelectedColumns(COLUMN_KEYS.map(col => col.key)); // Select All
         }
-    }, [searchQuery, viewMode]);
+    };
 
-    const currentMembers = filteredMembers.slice(
-        (currentPage - 1) * membersPerPage,
-        currentPage * membersPerPage
-    );
+    // Function 3: Ang Pinalitan na handleExportPDF (FINAL VERSION - using require)
+    const handleExportPDF = () => {
+        setShowExportModal(false);
 
-    const totalPages = Math.ceil(filteredMembers.length / membersPerPage);
+        // Filter members based on the current view mode/search query
+        const dataToExport = filteredMembers; // Gamitin ang pre-filtered data
+        
+        if (dataToExport.length === 0) {
+            alert('No data to export based on current filter/view mode!');
+            return;
+        }
+
+        // --- PINAKA-FINAL FIX PARA SA 'doc.autoTable is not a function' ---
+        // Piliting i-require ang autotable plugin bago i-initialize ang jsPDF.
+        try {
+            // Gumamit ng klasiko at "unsafe" require para pilitin ang side effect
+            (window as any).jspdf = require('jspdf');
+            require('jspdf-autotable');
+        } catch (e) {
+            // Fallback: Ito ang logic na ginamit natin kanina
+            require('jspdf-autotable');
+        }
+        
+        // I-require ang jsPDF object mula sa core library
+        const { jsPDF } = require('jspdf');
+        const doc = new jsPDF('landscape'); 
+        // ----------------------------------------------------
 
 
+        // 1. I-FILTER ang COLUMN_KEYS gamit ang selectedColumns state!
+        const columns = COLUMN_KEYS.filter(col => selectedColumns.includes(col.key));
+        const headers = columns.map(col => col.label);
+
+        // 2. I-MAP ang data para sa autoTable
+        const body = dataToExport.map((member, index) => {
+            const row = [];
+            row.push(index + 1); // Row Number
+
+            // Kunin lang ang value ng MGA NAPILING COLUMN
+            columns.forEach(col => {
+                // Gumamit ng (member as any) para ma-access ang dynamic key (col.key)
+                let value = (member as any)[col.key] || ''; 
+                if (col.key === 'password') {
+                    value = '********'; // Mask
+                }
+                row.push(value);
+            });
+            return row;
+        });
+
+        headers.unshift('No.'); // Idagdag ang 'No.' sa Headers
+        
+        // 4. Tawagin ang autoTable (Gamit ang Type Assertion)
+        (doc as any).autoTable({
+            head: [headers],
+            body: body,
+            startY: 20,
+            theme: 'striped',
+            headStyles: { fillColor: [30, 64, 52] },
+            styles: { fontSize: 8 },
+            // Manual Type Assertion para sa data parameter (didDrawPage)
+            didDrawPage: function (data: { pageNumber: number, settings: any, table: any }) { 
+                // Header
+                doc.setFontSize(14);
+                doc.setTextColor(40);
+                doc.text(`Account Registry - ${viewMode === 'active' ? 'Active Accounts' : 'Deleted Accounts'}`, 14, 15);
+                
+                // Footer (Pilitin din ang paggamit ng internal method)
+                doc.setFontSize(8);
+                const pageCount = (doc.internal as any).getNumberOfPages();
+                doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, (doc.internal as any).pageSize.height - 10);
+            }
+        });
+
+        // 5. Save the PDF
+        doc.save(`${exportFileName}.pdf`);
+    };
+
+    // --- JSX RENDER ---
     return (
-        <div className="bg-white rounded-lg shadow-md">
-            {/* Header (Changed bg-teader to a placeholder background) */}
-            <div className="bg-emerald-800 h-20 flex justify-between items-center px-8">
-                <h1 className="text-3xl font-extrabold text-white">
-                    Account Registry
-                    <span className="text-xl ml-3 font-normal">
-                        ({viewMode === 'active' ? 'Active Accounts' : 'Deleted Accounts'})
-                    </span>
+        <div className="">
+            {/* Header and Search */}
+             <div className="bg-teader h-20  flex justify-between items-center px-8">
+                <h1 className="text-3xl font-bold text-white">
+                    Account Registry ({viewMode === 'active' ? 'Active Accounts' : 'Deleted Accounts'})
                 </h1>
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center relative">
+                <div className="flex items-center space-x-3">
+                    <div className="relative">
                         <input
                             type="text"
                             placeholder="Search..."
-                            className="pl-10 pr-4 py-2 border rounded-full text-sm focus:outline-none 
-                            focus:ring-2 focus:ring-emerald-500 w-64"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-64 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:border-emerald-700"
                         />
-                        <Search size={16} className="absolute left-3 text-gray-400" />
+                        <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                     </div>
+                    {/* EXPORT BUTTON: Tumatawag sa setShowExportModal */}
                     <button 
-                        onClick={() => setShowExportModal(true)}
+                        onClick={() => setShowExportModal(true)} 
                         className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-emerald-600 
                         border border-emerald-700 rounded-full hover:bg-emerald-700" 
                         title="Export Data"
                     >
                         <Download size={16} /> Export
                     </button>
+                    <button
+                        onClick={() => {
+                            setForm(defaultForm);
+                            setIsEditing(false);
+                            setShowModal(true);
+                            setErrorMessage(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-emerald-700 rounded-full hover:bg-emerald-800"
+                    >
+                        <Plus size={16} /> Create Acc.
+                    </button>
                 </div>
             </div>
             
-            {/* Table Container with ID for PDF Export */}
-            <div id="members-table-container" className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full text-sm">
-                    {/* Assuming bg-object is a dark color for the table header, using a dark gray */}
-                    <thead className="bg-gray-800 text-white"> 
+            {/* View Mode Tabs */}
+            <div className="flex space-x-4 mb-6 border-b border-gray-200">
+                <button
+                    onClick={() => { setViewMode('active'); setCurrentPage(1); }}
+                    className={`py-2 px-4 font-medium transition-colors ${
+                        viewMode === 'active' ? 'text-emerald-700 border-b-2 border-emerald-700' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    Active Accounts ({activeCount})
+                </button>
+                <button
+                    onClick={() => { setViewMode('deleted'); setCurrentPage(1); }}
+                    className={`py-2 px-4 font-medium transition-colors ${
+                        viewMode === 'deleted' ? 'text-emerald-700 border-b-2 border-emerald-700' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    Deleted Accounts ({deletedCount})
+                </button>
+            </div>
+
+
+            {/* Table */}
+            <div id="members-table-container" className="overflow-x-auto bg-white rounded-lg shadow-md">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-object text-white">
                         <tr>
-                            {[
-                                "No.", "Acc. No.", "Surname", "First Name", "Middle Name", "Date of Birth",
-                                "Address", "Contact No.", "Email Address", "Civil Status", "Role in HOA",
-                                "Password", "Status", "Actions",
-                            ].map((h) => (
-                                <th key={h} className="p-3 text-left border-b border-gray-600 whitespace-nowrap">
-                                    {h}
-                                </th>
-                            ))}
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">No.</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Acc. No.</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Surname</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">First Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Middle Name</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Date of Birth</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Address</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Contact No.</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Email Address</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Civil Status</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Role in HOA</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Password</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="bg-white divide-y divide-gray-200">
                         {currentMembers.length > 0 ? (
-                            currentMembers.map((m, i) => (
-                                <tr key={m.id} className="border-b hover:bg-gray-50">
-                                    <td className="p-3">{(currentPage - 1) * membersPerPage + i + 1}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.accNo}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.surname}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.firstname}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.middlename}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.dob}</td>
-                                    <td className="p-3">{m.address}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.contact}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.email}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.civilStatus}</td>
-                                    <td className="p-3 whitespace-nowrap">{m.role}</td>
-                                    <td className="p-3">********</td>
-                                    <td className="p-3">
+                            currentMembers.map((member, index) => (
+                                <tr key={member.id} className="hover:bg-gray-50">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        {startIndex + index + 1}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        {member.accNo}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm  text-gray-900">
+                                        {member.surname}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.firstname}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.middlename || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.dob || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.address || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.contact || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.email}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.civilStatus || 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {member.role || 'Member'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        ********
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
                                         <span
-                                            className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                                statusColors[m.status] || "bg-gray-300 text-gray-700"
-                                            }`}
+                                            className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[member.status]}`}
                                         >
-                                            {m.status || "Unknown"}
+                                            {member.status}
                                         </span>
                                     </td>
-                                    <td className="p-3 w-[120px] whitespace-nowrap">
-                                        <div className="flex gap-2">
-                                            {/* ACTIVE VIEW ACTIONS */}
-                                            {viewMode === 'active' && (
-                                                <>
-                                                    <button 
-                                                        className="text-blue-500 hover:text-blue-700" 
-                                                        title="Edit Account" 
-                                                        aria-label="Edit Account"
-                                                        onClick={() => handleEditClick(m)}
-                                                    >
-                                                        <Pencil size={16} />
-                                                    </button>
-                                                    <button
-                                                        className="text-red-500 hover:text-red-700"
-                                                        onClick={() => handleDeleteMember(m.id, `${m.firstname} ${m.surname}`)}
-                                                        title="Soft Delete Account"
-                                                        aria-label="Soft Delete Account"
-                                                    >
-                                                        <Trash size={16} />
-                                                    </button>
-                                                </>
-                                            )}
-
-                                            {/* DELETED VIEW ACTIONS */}
-                                            {viewMode === 'deleted' && (
-                                                <>
-                                                    <button
-                                                        className="text-green-500 hover:text-green-700"
-                                                        onClick={() => handleRestoreMember(m.id, `${m.firstname} ${m.surname}`)}
-                                                        title="Restore Account"
-                                                        aria-label="Restore Account"
-                                                    >
-                                                        <RotateCcw size={16} />
-                                                    </button>
-                                                    {/* Placeholder for permanent delete */}
-                                                </>
-                                            )}
-                                            
-                                            <button className="text-gray-500 hover:text-gray-700" title="More Options" aria-label="More Options">
-                                                <MoreVertical size={16} />
+                                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                                        {viewMode === 'active' ? (
+                                            <div className="flex items-center justify-center space-x-2">
+                                                <button
+                                                    onClick={() => handleEditClick(member)}
+                                                    className="text-emerald-600 hover:text-emerald-900"
+                                                    title="Edit Account"
+                                                >
+                                                    <Pencil size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteMember(member.id, `${member.firstname} ${member.surname}`)}
+                                                    className="text-red-600 hover:text-red-900"
+                                                    title="Soft Delete Account"
+                                                >
+                                                    <Trash size={18} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleRestoreMember(member.id, `${member.firstname} ${member.surname}`)}
+                                                className="text-blue-600 hover:text-blue-900 flex items-center gap-1"
+                                                title="Restore Account"
+                                            >
+                                                <RotateCcw size={18} /> Restore
                                             </button>
-                                        </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={14} className="p-4 text-center text-gray-500">
-                                    {viewMode === 'active'
-                                        ? "No active members found."
-                                        : "No deleted accounts found."
-                                    }
+                                <td colSpan={14} className="px-6 py-4 text-center text-gray-500">
+                                    {viewMode === 'active' ? 'No active accounts found.' : 'No deleted accounts found.'}
                                 </td>
                             </tr>
                         )}
@@ -756,190 +779,114 @@ const handleExportPDF = async () => {
                 </table>
             </div>
 
-            {/* Pagination and Create Button / View Toggler */}
-            <div className="flex justify-between items-center mt-4 p-4">
-                
-                {/* View Toggler Buttons */}
-                <div className="flex gap-2">
+            {/* Pagination */}
+            <div className="flex justify-between items-center mt-4">
+                <span className="text-sm text-gray-700">
+                    Showing {Math.min(startIndex + 1, filteredMembers.length)} to {Math.min(startIndex + membersPerPage, filteredMembers.length)} of {filteredMembers.length} entries
+                </span>
+                <div className="flex space-x-2">
                     <button
-                        onClick={() => { setViewMode('active'); setCurrentPage(1); }}
-                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                            viewMode === 'active' ? 'bg-emerald-700 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                        title="View Active Accounts"
-                    >
-                        Active Accounts ({activeMembers.length})
-                    </button>
-                    <button
-                        onClick={() => { setViewMode('deleted'); setCurrentPage(1); }}
-                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                            viewMode === 'deleted' ? 'bg-red-700 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                        title="View Deleted Accounts"
-                    >
-                        Deleted Accounts ({deletedMembers.length})
-                    </button>
-                </div>
-                
-                {/* Pagination Controls */}
-                <nav className="flex items-center space-x-2">
-                    <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                         disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((p) => p - 1)}
-                        // Using a standard dark color for bg-object
-                        className="px-4 py-2 bg-gray-800 text-white rounded-lg disabled:opacity-50 " 
-                        title="Previous Page"
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                     >
-                        Back
+                        Previous
                     </button>
-                    {/* Paginating by numbers (simplified approach) */}
-                    {[...Array(totalPages)].map((_, idx) => (
-                        <button
-                            key={idx}
-                            onClick={() => setCurrentPage(idx + 1)}
-                            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                                currentPage === idx + 1
-                                    ? "bg-gray-800 text-white"
-                                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                            }`}
-                            title={`Go to page ${idx + 1}`}
-                        >
-                            {idx + 1}
-                        </button>
-                    ))}
+                    <span className="px-4 py-2 text-sm font-medium text-gray-700">
+                        Page {currentPage} of {totalPages}
+                    </span>
                     <button
-                        disabled={currentPage === totalPages || totalPages === 0}
-                        onClick={() => setCurrentPage((p) => p + 1)}
-                        className="px-4 py-2 bg-gray-800 text-white rounded-lg disabled:opacity-50 "
-                        title="Next Page"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages || filteredMembers.length === 0}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50"
                     >
                         Next
                     </button>
-                </nav>
-                
-                {/* Create Button */}
-                <button
-                    onClick={() => {
-                        setShowModal(true);
-                        setErrorMessage(null);
-                        setForm(defaultForm);
-                        setIsEditing(false);
-                    }}
-                    className="px-4 py-2 bg-emerald-700 text-white rounded-lg flex items-center gap-2"
-                    disabled={viewMode === 'deleted'}
-                    title="Create New Account"
-                >
-                    <Plus size={16} /> Create Acc.
-                </button>
+                </div>
             </div>
 
-            {/* --- CREATE / EDIT MODAL --- */}
+            {/* --- CREATE/EDIT MODAL --- */}
             {showModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg p-8 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-2xl font-semibold mb-6 text-gray-800">
-                            {isEditing ? 'Edit Existing Account' : 'Create New Account'}
+                    <div className="bg-white rounded-lg p-8 w-full max-w-2xl">
+                        <h2 className="text-2xl font-semibold mb-6 text-gray-800 border-b pb-2">
+                            {isEditing ? `Edit Account: ${form.firstname} ${form.surname}` : "Create New Account"}
                         </h2>
-                        <form onSubmit={isEditing ? handleUpdateAccount : handleCreateAccount} className="space-y-6">
-    
-                            {/* --- Error Message Display --- */}
+                        <form onSubmit={isEditing ? handleUpdateAccount : handleCreateAccount}>
                             {errorMessage && (
-                                <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700">
-                                    <p className="font-semibold">Operation Failed:</p>
-                                    <p className="text-sm">{errorMessage}</p>
-                                </div>
+                                <p className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
+                                    {errorMessage}
+                                </p>
                             )}
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                {/* ROW 1: Name Fields */}
+                            <div className="grid grid-cols-2 gap-4">
                                 <FloatingInput id="surname" label="Surname" required value={form.surname} onChange={(v) => setForm({ ...form, surname: v })} />
                                 <FloatingInput id="firstname" label="First Name" required value={form.firstname} onChange={(v) => setForm({ ...form, firstname: v })} />
-                                
-                                {/* ROW 2: Middle Name & DOB */}
                                 <FloatingInput id="middlename" label="Middle Name" value={form.middlename} onChange={(v) => setForm({ ...form, middlename: v })} />
-                                <FloatingInput id="dob" label="Date of Birth" type="date" value={form.dob} onChange={(v) => setForm({ ...form, dob: v })} />
-
-                                {/* ROW 3: Address at Account Status */}
-                                <FloatingInput id="address" label="Address" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
-                                
-                                {/* ACCOUNT STATUS: Visible only when editing */}
-                                {isEditing ? (
-                                    <FloatingSelect 
-                                        id="status" 
-                                        label="Account Status" 
-                                        value={form.status} 
-                                        onChange={(v) => setForm({ ...form, status: v })} 
-                                        options={["New", "Active", "Inactive"]} // Exclude "Deleted" from dropdown edit
+                                <FloatingInput id="dob" label="Date of Birth (YYYY-MM-DD)" value={form.dob} onChange={(v) => setForm({ ...form, dob: v })} />
+                                <FloatingInput id="address" label="House Address" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
+                                <FloatingInput id="contact" label="Contact No." value={form.contact} onChange={(v) => setForm({ ...form, contact: v })} />
+                                <FloatingInput id="email" label="Email Address" required value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
+                                <FloatingSelect
+                                    id="civilStatus"
+                                    label="Civil Status"
+                                    required
+                                    value={form.civilStatus}
+                                    onChange={(v) => setForm({ ...form, civilStatus: v })}
+                                    options={["Single", "Married", "Divorced", "Widowed"]}
+                                />
+                                <FloatingSelect
+                                    id="role"
+                                    label="Role in HOA"
+                                    required
+                                    value={form.role}
+                                    onChange={(v) => setForm({ ...form, role: v })}
+                                    options={["Member", "Officer", "Admin"]}
+                                />
+                                {isEditing && (
+                                    <FloatingSelect
+                                        id="status"
+                                        label="Status"
+                                        required
+                                        value={form.status}
+                                        onChange={(v) => setForm({ ...form, status: v })}
+                                        options={["Active", "Inactive", "New", "Deleted"]}
                                     />
-                                ) : (
-                                    // Hidden status input for creation (always "New")
-                                    // The HiddenInput is not actually needed since it's hardcoded on creation.
-                                    <div className="h-16"></div> // To maintain grid layout spacing
                                 )}
-                                
-                                {/* ROW 4: Contact & Email */}
-                                <FloatingInput id="contact" label="Contact Number" value={form.contact} onChange={(v) => setForm({ ...form, contact: v })} />
-                                <FloatingInput id="email" label="Email Address" type="email" required value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-                                
-                                {/* ROW 5: Civil Status & Role */}
-                                <FloatingSelect id="civilStatus" label="Civil Status" value={form.civilStatus} onChange={(v) => setForm({ ...form, civilStatus: v })} options={["Single", "Married", "Divorced", "Widowed"]} />
-                                <FloatingSelect id="role" label="Role in HOA" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={["Member", "Officer", "Admin"]} />
-
-                                {/* Conditional Password Fields (Only show for Creation) */}
                                 {!isEditing && (
                                     <>
-                                        <FloatingInput 
-                                            id="password" 
-                                            label="Password" 
-                                            type="password" 
-                                            required 
-                                            value={form.password} 
-                                            onChange={(v) => setForm({ ...form, password: v })} 
-                                            onFocus={() => setShowPasswordInfo(true)} 
-                                            onBlur={() => setShowPasswordInfo(false)} 
-                                        />
-                                        <FloatingInput 
-                                            id="confirm" 
-                                            label="Confirm Password" 
-                                            type="password" 
-                                            required 
-                                            value={form.confirm} 
-                                            onChange={(v) => setForm({ ...form, confirm: v })} 
-                                            onFocus={() => setShowPasswordInfo(true)} 
+                                        <FloatingInput
+                                            id="password"
+                                            label="Password"
+                                            required
+                                            value={form.password}
+                                            onChange={(v) => setForm({ ...form, password: v })}
+                                            type="password"
+                                            onFocus={() => setShowPasswordInfo(true)}
                                             onBlur={() => setShowPasswordInfo(false)}
+                                        />
+                                        <FloatingInput
+                                            id="confirm"
+                                            label="Confirm Password"
+                                            required
+                                            value={form.confirm}
+                                            onChange={(v) => setForm({ ...form, confirm: v })}
+                                            type="password"
                                         />
                                     </>
                                 )}
                             </div>
 
-                            {/* Conditional Password Requirements Display */}
                             {showPasswordInfo && !isEditing && (
-                                <div className="password-strength-info p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-gray-700">
-                                    <p className="font-semibold text-red-700 mb-1">Requirements:</p>
-                                    <ul className="list-disc list-inside space-y-0.5">
-                                        <li>Minimum **8 characters**.</li>
-                                        <li>Must contain at least one **uppercase letter** (A-Z).</li>
-                                        <li>Must contain at least one **number** (0-9).</li>
-                                        <li>Must contain at least one **special character** (e.g., !@#$%^&*).</li>
-                                    </ul>
-                                    <p className="mt-2 text-xs text-gray-500">
-                                        <span className="font-semibold text-red-700">Email:</span> Must be a valid format (e.g., name@domain.com).
-                                    </p>
-                                </div>
+                                <p className="mt-3 text-xs text-gray-600 p-2 bg-yellow-50 rounded">
+                                    Password must be 8+ chars, with an uppercase letter, a number, and a special character.
+                                </p>
                             )}
                             
-                            <div className="flex justify-end gap-3 mt-6">
+                            <div className="flex justify-end gap-3 mt-8">
                                 <button
                                     type="button"
                                     className="px-4 py-2 rounded-md text-sm hover:bg-gray-200"
-                                    onClick={() => {
-                                        setShowModal(false);
-                                        setShowPasswordInfo(false); 
-                                        setErrorMessage(null);
-                                        setForm(defaultForm);
-                                        setIsEditing(false);
-                                        setCurrentMemberId(null);
-                                    }}
+                                    onClick={() => setShowModal(false)}
                                 >
                                     Cancel
                                 </button>
@@ -947,7 +894,7 @@ const handleExportPDF = async () => {
                                     type="submit"
                                     className="px-4 py-2 rounded-md text-sm bg-emerald-700 text-white hover:bg-emerald-800"
                                 >
-                                    {isEditing ? 'Save Changes' : 'Create Acc.'}
+                                    {isEditing ? "Update Account" : "Create Account"}
                                 </button>
                             </div>
                         </form>
@@ -955,7 +902,7 @@ const handleExportPDF = async () => {
                 </div>
             )}
             
-            {/* --- PDF EXPORT MODAL (Simplified based on the image) --- */}
+            {/* --- PDF EXPORT MODAL (Dynamic Column Selection) --- */}
             {showExportModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg p-8 w-full max-w-lg">
@@ -963,28 +910,45 @@ const handleExportPDF = async () => {
                             Export to PDF
                         </h2>
                         <div className="space-y-4">
+                            {/* File Name Input */}
                             <FloatingInput 
                                 id="file-name" 
                                 label="File Name" 
                                 required 
-                                value="HOA_Members_Registry" 
-                                onChange={() => {}} // Placeholder: You can add state for custom file name
+                                value={exportFileName} 
+                                // Gumagamit ng setExportFileName state function
+                                onChange={setExportFileName} 
                                 className="mb-6"
                             />
                             
                             <h3 className="font-medium text-gray-700">Columns to Include</h3>
-                            <div className="grid grid-cols-3 gap-2 text-sm">
-                                {/* Sample checkboxes based on your image */}
-                                {["Acc. No.", "Surname", "First Name", "Middle Name", "Date of Birth", "Contact No.", "Email Address", "Civil Status", "Role in HOA", "Status", "House Address"].map(col => (
-                                    <div key={col} className="flex items-center">
-                                        <input type="checkbox" id={`col-${col}`} name="columns" defaultChecked className="mr-2 text-emerald-600 focus:ring-emerald-500" />
-                                        <label htmlFor={`col-${col}`}>{col}</label>
+                            
+                            {/* DYNAMIC CHECKBOX GRID */}
+                            <div className="grid grid-cols-3 gap-2 text-sm max-h-60 overflow-y-auto p-2 border rounded">
+                                {COLUMN_KEYS.map(col => (
+                                    <div key={col.key} className="flex items-center">
+                                        <input 
+                                            type="checkbox" 
+                                            id={`col-${col.key}`} 
+                                            name="columns" 
+                                            // Tinitingnan kung kasama sa selectedColumns state
+                                            checked={selectedColumns.includes(col.key)}
+                                            // Tumatawag sa handleToggleColumn function
+                                            onChange={() => handleToggleColumn(col.key)}
+                                            className="mr-2 text-emerald-600 focus:ring-emerald-500" 
+                                        />
+                                        <label htmlFor={`col-${col.key}`} className="truncate">{col.label}</label>
                                     </div>
                                 ))}
                             </div>
+                            
                             <div className="flex justify-end">
-                                <button className="text-sm text-blue-600 hover:text-blue-800" onClick={() => { /* Toggle All Logic Here */ }}>
-                                    Select All / Deselect All
+                                <button 
+                                    className="text-sm text-blue-600 hover:text-blue-800" 
+                                    onClick={handleToggleAllColumns} // Select All/Deselect All
+                                    type="button"
+                                >
+                                    {selectedColumns.length === COLUMN_KEYS.length ? 'Deselect All' : 'Select All'}
                                 </button>
                             </div>
                         </div>
@@ -1000,7 +964,9 @@ const handleExportPDF = async () => {
                             <button
                                 type="button"
                                 className="px-4 py-2 rounded-md text-sm bg-emerald-700 text-white hover:bg-emerald-800"
-                                onClick={handleExportPDF} // Use the PDF export function
+                                onClick={handleExportPDF} 
+                                // I-disable kung walang naka-check
+                                disabled={selectedColumns.length === 0} 
                             >
                                 Export and Save to device
                             </button>
@@ -1008,6 +974,7 @@ const handleExportPDF = async () => {
                     </div>
                 </div>
             )}
+
         </div>
     );
 };

@@ -137,30 +137,11 @@ const Layout = () => {
                         )}
                     </div>
 
-                    {/* --- Members Dropdown --- */}
-                    <div className="pt-2">
-                        <button
-                            onClick={() => setIsMembersOpen(!isMembersOpen)}
-                            className={`w-full text-left p-3 rounded-lg flex justify-between items-center transition-colors ${hoverColor} ${isMembersOpen ? "bg-green-700 font-semibold" : ""}`}
-                        >
-                            <div className="flex items-center space-x-3">
-                                <Users className="w-5 h-5" />
-                                <span className="text-sm">Members</span>
-                            </div>
-                            {isMembersOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        </button>
-
-                        {isMembersOpen && (
-                            <div className="ml-4 mt-1 space-y-1 border-l border-green-600 pl-3">
-                                {/* Account Registration */}
-                                <SidebarLink 
-                                    to="/members/accReg"
-                                    icon={<UserPlus className="w-4 h-4 text-green-400" />}
-                                    label="Account Registration"
-                                />
-                            </div>
-                        )}
-                    </div>
+                      <SidebarLink 
+                        to="/accReg"
+                        icon={<ClipboardList className="w-5 h-5" />}
+                        label="Members"
+                    />
 
                     {/* --- Static Links (Simplified for consistency) --- */}
                     

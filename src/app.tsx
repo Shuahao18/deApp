@@ -42,7 +42,7 @@ const router = createHashRouter([
           {path: "accounting/contribution", element: <Contribution /> },
           {path: "accounting/expenses", element: <Expenses /> },
           { path: "members/memAssoc", element: <MemAssoc /> },
-          { path: "members/accReg", element: <AccReg /> },
+          { path: "accReg", element: <AccReg /> },
           { path: "election", element: <Election /> },
           { path: "", element: <Navigate to="dashboard" replace /> }, // Empty path redirects to dashboard
           { path: "*", element: <Navigate to="dashboard" replace /> }, // 404 fallback
