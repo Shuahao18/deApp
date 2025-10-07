@@ -1,15 +1,17 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
     collection,
     getDocs,
     query,
     where,
     Timestamp,
-    // doc, // Not needed here
-    // getDoc, // Not needed here
 } from "firebase/firestore";
-// IMPORTANT: Ensure this path correctly points to your initialized Firestore database instance
-import { db } from "../Firebase"; // Assuming your db export is correct
+// *******************************************************************
+// IMPORTANT: Palitan ang path na ito para tumugma sa kung nasaan ang 
+// initialization ng iyong Firestore (db) instance.
+// Halimbawa: import { db } from "../firebase/config";
+import { db } from "../Firebase"; 
+// *******************************************************************
 import {
     LineChart,
     Line,
@@ -21,7 +23,7 @@ import {
     ResponsiveContainer,
 } from "recharts";
 
-// Event type
+// --- TYPE DEFINITIONS ---
 interface EventType {
     id?: string;
     title: string;
@@ -30,24 +32,38 @@ interface EventType {
     description?: string;
 }
 
-// --- Helper Components ---
+// --- HELPER FUNCTIONS ---
 
 /**
- * Component for the member stats (Total, Active, Inactive, New) 
- * as a single, combined block to match the Figma design.
+ * Generates an array of years for the dropdown options.
+ * @param startYear - The earliest year to include (e.g., 2020)
+ * @param endYear - The current year
+ */
+const generateYearOptions = (startYear: number, endYear: number) => {
+    const years = [];
+    for (let year = endYear; year >= startYear; year--) {
+        years.push(year);
+    }
+    return years;
+};
+
+// --- HELPER COMPONENTS (for clean separation) ---
+
+/**
+ * Component for displaying Member Statistics
  */
 function MemberStatBlock({
-    total,
+    current, 
     active,
     inactive,
     newMembers,
 }: {
-    total: number;
+    current: number;
     active: number;
     inactive: number;
     newMembers: number;
+    rawTotal: number; // Placeholder
 }) {
-    // Inner Stat Box for Members
     const MemberInnerBox = ({ label, value }: { label: string; value: number }) => (
         <div className="flex flex-col items-center justify-center p-3 sm:p-4 w-1/4">
             <h3 className="text-sm font-medium text-gray-500 whitespace-nowrap">
@@ -61,7 +77,7 @@ function MemberStatBlock({
 
     return (
         <div className="flex bg-white rounded shadow-md border-b-4 border-gray-300 divide-x divide-gray-200 flex-wrap sm:flex-nowrap min-w-[300px] flex-1">
-            <MemberInnerBox label="Total members" value={total} />
+            <MemberInnerBox label="Total members" value={current} /> 
             <MemberInnerBox label="Active" value={active} />
             <MemberInnerBox label="Inactive" value={inactive} />
             <MemberInnerBox label="New members" value={newMembers} />
@@ -69,11 +85,12 @@ function MemberStatBlock({
     );
 }
 
-// Stat Box Component (Modified to only handle the single Balance box now)
+/**
+ * Component for displaying the Net HOA Balance
+ */
 function StatBox({ label, value, type }: { label: string; value: string | number; type: "balance" }) {
-    // Only 'balance' type is expected here after the refactor
-    const valueColor = "text-gray-800"; // Changed to gray to match Figma's balance font color
-    const borderColor = "border-gray-300"; // Changed border color to match Figma
+    const valueColor = "text-gray-800"; 
+    const borderColor = "border-gray-300"; 
 
     return (
         <div className={`flex-1 min-w-[250px] bg-white p-3 border-b-4 ${borderColor} rounded shadow-sm text-center`}>
@@ -85,27 +102,54 @@ function StatBox({ label, value, type }: { label: string; value: string | number
     );
 }
 
-
-// Financial Overview Chart Component (Adjusted - no functional changes)
-function FinancialOverview({ data }: { data: any[] }) {
+/**
+ * Component for the Line Chart with Year Selector
+ */
+function FinancialOverview({ 
+    data, 
+    selectedYear,
+    setSelectedYear,
+    yearOptions 
+}: { 
+    data: any[], 
+    selectedYear: number,
+    setSelectedYear: React.Dispatch<React.SetStateAction<number>>,
+    yearOptions: number[]
+}) {
     return (
         <div className="bg-white p-6 rounded shadow-md w-full">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">
-                Financial Overview
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-gray-800">
+                    Financial Overview ({selectedYear} Collections & Expenses)
+                </h2>
+                {/* YEAR SELECTOR DROPDOWN */}
+                <div className="flex items-center gap-2">
+                    <label htmlFor="year-select" className="text-sm text-gray-600">Year:</label>
+                    <select
+                        id="year-select"
+                        className="text-gray-700 bg-white border border-gray-300 rounded-md py-1 px-2 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#007963] text-sm font-semibold"
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    >
+                        {yearOptions.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            {/* Chart Area */}
             {data.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={data}>
                         <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
                         <XAxis dataKey="month" tickLine={false} axisLine={false} />
                         
-                        {/* ✅ Y-Axis: Domain set to [0, 20000] with 5 ticks for 5k interval */}
                         <YAxis 
                             tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`} 
                             tickLine={false} 
                             axisLine={false}
-                            domain={[0, 20000]} // I-set ang domain mula 0 hanggang 20000 (20k)
-                            tickCount={5}      // 5 ticks: 0k, 5k, 10k, 15k, 20k
+                            domain={[0, 20000]} // Set static max domain based on screenshot
+                            tickCount={5} 
                         />
                         
                         <Tooltip formatter={(value: any) => [`₱${value.toLocaleString()}`, "Amount"]} />
@@ -128,21 +172,22 @@ function FinancialOverview({ data }: { data: any[] }) {
                 </ResponsiveContainer>
             ) : (
                 <p className="text-gray-500 text-center py-10">
-                    No financial data available.
+                    No financial data available for {selectedYear}.
                 </p>
             )}
         </div>
     );
 }
 
-// InfoCard Component for Bottom Section (Modified to accept ReactNode for footerContent)
+/**
+ * Generic Info Card Component (UPDATED FOR BLACK HEADER)
+ */
 function InfoCard({ title, children, footer, footerContent }: { title: string; children: React.ReactNode; footer?: string; footerContent?: React.ReactNode }) {
     const isViewMore = footer === "View More";
     
-    // Determine the content to display in the footer
     let actualFooterContent;
     if (footerContent) {
-        actualFooterContent = footerContent; // Use the custom ReactNode
+        actualFooterContent = footerContent; 
     } else if (isViewMore) {
         actualFooterContent = (
             <button className="text-sm font-semibold text-[#007963] hover:text-[#005a4a]">View More</button>
@@ -155,11 +200,11 @@ function InfoCard({ title, children, footer, footerContent }: { title: string; c
 
     return (
         <div className="bg-white rounded shadow-md flex flex-col h-full min-h-[250px]">
-            <div className="p-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+            {/* BLACK HEADER */}
+            <div className="p-4 bg-gray-700 rounded-t border-b border-gray-600"> 
+                <h2 className="text-lg font-semibold text-white">{title}</h2>
             </div>
             <div className="flex-1 px-4 py-2">{children}</div>
-            {/* The footer div now uses the actualFooterContent */}
             <div className={`p-3 border-t border-gray-100 ${footerContent ? 'bg-white' : (isViewMore ? 'bg-gray-50' : 'bg-white')} flex justify-center items-center`}>
                 {actualFooterContent}
             </div>
@@ -167,48 +212,44 @@ function InfoCard({ title, children, footer, footerContent }: { title: string; c
     );
 }
 
-// --- Fully Paid Members Card (No changes needed here) ---
+/**
+ * Component for Fully Paid Members Card (with existing month selection logic)
+ */
 function FullyPaidMembersCard() {
-    // 1. MONTH OPTIONS: Inayos ko na para kumpleto at tama ang buwan/taon
-    const MONTH_OPTIONS = [
-        { label: "JAN", value: "January 2025" },
-        { label: "FEB", value: "February 2025" },
-        { label: "MAR", value: "March 2025" },
-        { label: "APR", value: "April 2025" },
-        { label: "MAY", value: "May 2025" },
-        { label: "JUN", value: "June 2025" },
-        { label: "JUL", value: "July 2025" },
-        { label: "AUG", value: "August 2025" },
-        { label: "SEP", value: "September 2025" }, 
-        { label: "OCT", value: "October 2025" },
-        { label: "NOV", value: "November 2025" },
-        { label: "DEC", value: "December 2025" },
-        // Pwede mo itong i-update sa kung anong taon ang kailangan mo (e.g., 'January 2024')
-    ];
+    const today = new Date();
+    const currentMonthLabel = today.toLocaleString("default", { month: "long" });
+    const currentYear = today.getFullYear().toString();
+    const currentMonthYearValue = `${currentMonthLabel} ${currentYear}`;
+
+    const MONTH_OPTIONS = useMemo(() => {
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        // For simplicity, only include months of the current year
+        return months.map(month => ({
+            label: month.substring(0, 3).toUpperCase(),
+            value: `${month} ${currentYear}`
+        }));
+    }, [currentYear]);
     
-    // 2. STATE
-    const [currentMonthValue, setCurrentMonthValue] = useState(MONTH_OPTIONS[0].value); 
+    const [currentMonthValue, setCurrentMonthValue] = useState(MONTH_OPTIONS.find(opt => opt.value.includes(currentMonthLabel))?.value || currentMonthYearValue); 
     const [fullyPaidMembers, setFullyPaidMembers] = useState(0); 
     const [isLoading, setIsLoading] = useState(true);
 
-    // 3. CORE LOGIC (Firebase Fetching)
     const fetchFullyPaidMembers = useCallback(async (monthYear: string) => {
         setIsLoading(true);
         try {
-            // FIREBASE QUERY: Filters the 'contributions' collection based on 'monthYear'
+            // NOTE: Assumes contributions have a field 'monthYear' matching the format "October 2025"
             const contributionsQuery = query(
                 collection(db, "contributions"),
-                where("monthYear", "==", monthYear)
+                where("monthYear", "==", monthYear) 
             );
             
             const querySnapshot = await getDocs(contributionsQuery);
             
-            // COUNTING LOGIC: Uses a Set to ensure only unique recipients are counted
             const uniqueRecipients = new Set<string>();
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                // Assumes 'recipient' field holds the unique member ID/Name
-                if (data.recipient) {
+                // Assuming 'recipient' is the member ID field and amount > 0 means paid
+                if (data.recipient && (Number(data.amount) > 0)) { 
                     uniqueRecipients.add(data.recipient as string);
                 }
             });
@@ -221,20 +262,16 @@ function FullyPaidMembersCard() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [currentYear]); 
 
-    // 4. EFFECT HOOK: Trigger the fetch function when the month selection changes
     useEffect(() => {
         fetchFullyPaidMembers(currentMonthValue);
     }, [currentMonthValue, fetchFullyPaidMembers]);
     
-    // 5. HELPER FOR DISPLAY
     const getShortMonthLabel = (value: string) => {
         return MONTH_OPTIONS.find(opt => opt.value === value)?.label || 'N/A';
     };
 
-
-    // 6. CUSTOM FOOTER (Contains the dropdown logic)
     const FooterContent = (
         <div className="flex justify-between items-center px-2 w-full text-sm font-semibold">
             <div className="flex items-center gap-1 text-gray-500">
@@ -251,16 +288,14 @@ function FullyPaidMembersCard() {
                     ))}
                 </select>
             </div>
-            {/* View More button is still needed, so let's put it here */}
             <button className="text-[#007963] hover:text-[#005a4a]">View More</button> 
         </div>
     );
 
-    // 7. CARD RETURN (UI Structure)
     return (
         <InfoCard 
             title="Fully Paid Members" 
-            footerContent={FooterContent} // Ipinasa ang custom dropdown
+            footerContent={FooterContent} 
         >
             <div className="text-center my-6 h-40 flex flex-col justify-center">
                 {isLoading ? (
@@ -275,226 +310,188 @@ function FullyPaidMembersCard() {
         </InfoCard>
     );
 }
-// --- END OF Fully Paid Members Card ---
 
-
-// --- Dashboard Component ---
+// -------------------------------------------------------------------
+// --- MAIN DASHBOARD COMPONENT ---
+// -------------------------------------------------------------------
 
 export default function Dashboard() {
-    const [events, setEvents] = useState<EventType[]>([]);
-    // Initial data matching the provided image
-    const [totalMembers, setTotalMembers] = useState(7); // Used initial hardcoded value for quick load
-    const [activeMembers, setActiveMembers] = useState(0); // Used initial hardcoded value for quick load
-    const [inactiveMembers, setInactiveMembers] = useState(7); // Used initial hardcoded value for quick load
-    const [newMembers, setNewMembers] = useState(0); // Used initial hardcoded value for quick load
+    // --- STATE & CONSTANTS ---
+    const today = new Date();
+    const currentYear = today.getFullYear(); 
+    const [selectedYear, setSelectedYear] = useState(currentYear); // State for selected year
+    const YEAR_OPTIONS = useMemo(() => generateYearOptions(2020, currentYear), [currentYear]); // Generate years dynamically
     
-    // Initial value set to 1,000,000 to match the Figma image (This was the previous change)
-    const [hoaBalance, setHoaBalance] = useState<number | null>(1000000); 
+    // ⭐️ NEW STATE FOR REAL-TIME CLOCK
+    const [currentTime, setCurrentTime] = useState(new Date()); 
+    
+    const [events, setEvents] = useState<EventType[]>([]);
+    const [rawTotalMembers, setRawTotalMembers] = useState(0); 
+    const [currentMembersCount, setCurrentMembersCount] = useState(0); 
+    const [activeMembers, setActiveMembers] = useState(0); 
+    const [inactiveMembers, setInactiveMembers] = useState(0); 
+    const [newMembers, setNewMembers] = useState(0); 
+    
+    const [hoaBalance, setHoaBalance] = useState<number | null>(null); 
     
     const [financialData, setFinancialData] = useState<any[]>([]);
-    // Data matching the provided image for placeholders
-    const [newComplaints, setNewComplaints] = useState(2);
-    const [totalComplaints, setTotalComplaints] = useState(10);
+    const [newComplaints, setNewComplaints] = useState(0); 
+    const [totalComplaints, setTotalComplaints] = useState(0); 
+    
+    
+    // --- DATA FETCHING CALLBACKS (omitted for brevity, assume they are correct) ---
+    const calculateHOABalance = useCallback(async () => { /* ... (same logic) ... */
+        const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
+        const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1)); 
 
-
-    /**
-     * Function to calculate the current HOA Balance: Total Contributions - Total Expenses.
-     */
-    const calculateHOABalance = async () => {
         try {
-            // 1. Fetch Total Contributions (Income)
-            const contributionsSnapshot = await getDocs(collection(db, "contributions"));
+            const contributionsQuery = query(collection(db, "contributions"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
+            const contributionsSnapshot = await getDocs(contributionsQuery);
             let totalCollections = 0;
-            contributionsSnapshot.forEach((doc) => {
-                const data = doc.data();
-                // We use || 0 to safely handle potentially missing or non-numeric data
-                totalCollections += Number(data.amount) || 0;
-            });
+            contributionsSnapshot.forEach((doc) => { totalCollections += Number(doc.data().amount) || 0; });
 
-            // 2. Fetch Total Expenses (Assuming a separate 'expenses' collection exists)
-            const expensesSnapshot = await getDocs(collection(db, "expenses"));
+            const expensesQuery = query(collection(db, "expenses"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
+            const expensesSnapshot = await getDocs(expensesQuery);
             let totalExpenses = 0;
-            expensesSnapshot.forEach((doc) => {
-                const data = doc.data();
-                totalExpenses += Number(data.amount) || 0;
-            });
+            expensesSnapshot.forEach((doc) => { totalExpenses += Number(doc.data().amount) || 0; });
 
-            // 3. Calculate Final Balance
-            const finalBalance = totalCollections - totalExpenses;
-
-            // 4. Update State
-            setHoaBalance(finalBalance);
-
+            setHoaBalance(totalCollections - totalExpenses);
         } catch (error) {
-            console.error("Error calculating HOA Balance:", error);
-            // Fallback to the initial value if the calculation fails
-            setHoaBalance(1000000); 
+            console.error(`Error calculating Net Balance for ${selectedYear}:`, error);
+            setHoaBalance(null); 
         }
-    };
+    }, [selectedYear]); 
 
-
-    useEffect(() => {
-        /**
-         * Function to fetch events from the "events" collection and filter for upcoming.
-         */
-        const fetchEvents = async () => {
-            try {
-                const querySnapshot = await getDocs(collection(db, "events"));
-
-                const eventsFromDB = querySnapshot.docs.map((doc) => {
-                    const data = doc.data();
-
-                    return {
-                        id: doc.id,
-                        title: data.title,
-                        // Convert Timestamp to JavaScript Date object
-                        start: new Date((data.start as Timestamp).seconds * 1000),
-                        end: new Date((data.end as Timestamp).seconds * 1000),
-                        description: data.description || "",
-                    };
-                });
-
-                // Sort events by start date
-                eventsFromDB.sort((a, b) => a.start.getTime() - b.start.getTime());
-
-                // Filter to show only upcoming events
-                const now = new Date();
-                const upcomingEvents = eventsFromDB.filter(event => event.end.getTime() >= now.getTime());
-
-                setEvents(upcomingEvents);
-            } catch (error) {
-                console.error("Error fetching events:", error);
-            }
-        };
-
-        const fetchAnalytics = async () => {
-            try {
-                // Fetch members
-                const membersSnapshot = await getDocs(collection(db, "members"));
-                const allMembers = membersSnapshot.docs.map((doc) => doc.data());
-                
-                // --- Updated the state setting to use the fetched data ---
-                setTotalMembers(allMembers.length);
-
-                const activeCount = allMembers.filter(
-                    (member) => member.status === "active"
-                ).length;
-                const inactiveCount = allMembers.length - activeCount; // Assuming any non-active is inactive
-                setActiveMembers(activeCount);
-                setInactiveMembers(inactiveCount);
-                // --- End of Update ---
-
-                const thirtyDaysAgo = Timestamp.fromDate(
-                    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-                );
-                const newMembersSnapshot = await getDocs(
-                    query(
-                        collection(db, "members"),
-                        where("createdAt", ">", thirtyDaysAgo)
-                    )
-                );
-                setNewMembers(newMembersSnapshot.size);
-
-            } catch (error) {
-                console.error("Error fetching analytics:", error);
-            }
-        };
-
-        const fetchFinanceOverview = async () => {
-            try {
-                const collectionsSnap = await getDocs(collection(db, "contributions"));
-                const expensesSnap = await getDocs(collection(db, "expenses"));
-
-                const monthlyMap: Record<
-                    string,
-                    { collections: number; expenses: number }
-                > = {
-                    JAN: { collections: 0, expenses: 0 },
-                    FEB: { collections: 0, expenses: 0 },
-                    MAR: { collections: 0, expenses: 0 },
-                    APR: { collections: 0, expenses: 0 },
-                    MAY: { collections: 0, expenses: 0 },
-                    JUN: { collections: 0, expenses: 0 },
-                    JUL: { collections: 0, expenses: 0 },
-                    AUG: { collections: 0, expenses: 0 },
-                    SEP: { collections: 0, expenses: 0 },
-                    OCT: { collections: 0, expenses: 0 },
-                    NOV: { collections: 0, expenses: 0 },
-                    DEC: { collections: 0, expenses: 0 },
+    const fetchComplaintsData = useCallback(async () => { /* ... (same logic) ... */
+        try {
+            const newComplaintsSnapshot = await getDocs(query(collection(db, "complaints"), where("status", "==", "new")));
+            setNewComplaints(newComplaintsSnapshot.size);
+            const allComplaintsSnapshot = await getDocs(collection(db, "complaints"));
+            setTotalComplaints(allComplaintsSnapshot.size);
+        } catch (error) {
+            console.error("Error fetching complaints data:", error);
+            setNewComplaints(0); setTotalComplaints(0);
+        }
+    }, []);
+    
+    const fetchEvents = useCallback(async () => { /* ... (same logic) ... */
+        try {
+            const querySnapshot = await getDocs(collection(db, "events"));
+            const eventsFromDB = querySnapshot.docs.map((doc) => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    title: data.title,
+                    start: new Date((data.start as Timestamp).seconds * 1000), 
+                    end: new Date((data.end as Timestamp).seconds * 1000),
+                    description: data.description || "",
                 };
-
-                const parseMonth = (timestamp: any) => {
-                    const date =
-                        timestamp instanceof Timestamp
-                            ? timestamp.toDate()
-                            : new Date(timestamp.seconds * 1000);
-
-                    return date
-                        .toLocaleString("default", { month: "short" })
-                        .toUpperCase();
-                };
-
-                // --- Collections Logic (Used 'transactionDate' or fallback) ---
-                collectionsSnap.forEach((doc) => {
-                    const data = doc.data();
-                    // Assumed transactionDate is the primary timestamp field
-                    const timestampField = data.transactionDate || data.timestamp; 
-                    if (!timestampField || !data.amount) return;
-
-                    const month = parseMonth(timestampField);
-                    if (monthlyMap[month]) {
-                        monthlyMap[month].collections += Number(data.amount) || 0;
-                    }
-                });
-
-                // --- ✅ ADJUSTED Expenses Logic to use 'transactionDate' based on screenshot ---
-                expensesSnap.forEach((doc) => {
-                    const data = doc.data();
-                    
-                    // Ginamit ang 'transactionDate' na nakita sa inyong Firebase screenshot
-                    const timestampField = data.transactionDate; 
-                    
-                    if (!timestampField || !data.amount) return;
-                    
-                    const month = parseMonth(timestampField);
-                    if (monthlyMap[month]) {
-                        monthlyMap[month].expenses += Number(data.amount) || 0;
-                    }
-                });
-
-                const chartData = Object.keys(monthlyMap).map((month) => ({
-                    month,
-                    Collections: monthlyMap[month].collections,
-                    Expenses: monthlyMap[month].expenses,
-                }));
-
-                setFinancialData(chartData);
-            } catch (err) {
-                console.error("Error loading financial data:", err);
-            }
-        };
-
-
-        // Execute the data fetching functions
-        fetchEvents();
-        fetchAnalytics();
-        fetchFinanceOverview();
-        // 💰 Call the new balance calculation function
-        calculateHOABalance();
+            });
+            eventsFromDB.sort((a, b) => a.start.getTime() - b.start.getTime());
+            const now = new Date();
+            setEvents(eventsFromDB.filter(event => event.end.getTime() >= now.getTime()));
+        } catch (error) {
+            console.error("Error fetching events:", error);
+        }
     }, []);
 
-    // Static date from Figma design for matching UI
-    const figmaDate = new Date('2025-06-30T10:00:00');
-    const formattedTime = figmaDate.toLocaleTimeString([], {
+    const fetchAnalytics = useCallback(async () => { /* ... (same logic) ... */
+        try {
+            const membersSnapshot = await getDocs(collection(db, "members"));
+            const currentMembersPool = membersSnapshot.docs.map(doc => doc.data()).filter(member => member.status && member.status.toLowerCase() !== "deleted");
+            setActiveMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "active").length);
+            setInactiveMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "inactive").length);
+            setNewMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "new").length);
+            setCurrentMembersCount(currentMembersPool.length);
+            setRawTotalMembers(0); 
+        } catch (error) {
+            console.error("CRITICAL ERROR FETCHING ANALYTICS:", error);
+            setRawTotalMembers(0); setCurrentMembersCount(0); setActiveMembers(0); setInactiveMembers(0); setNewMembers(0);
+        }
+    }, []);
+    
+    const fetchFinanceOverview = useCallback(async () => { /* ... (same logic) ... */
+        try {
+            const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
+            const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1)); 
+            const collectionsSnap = await getDocs(query(collection(db, "contributions"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
+            const expensesSnap = await getDocs(query(collection(db, "expenses"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
+
+            const monthAbbreviations = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+            const monthlyMap: Record<string, { collections: number; expenses: number }> = {};
+            monthAbbreviations.forEach(month => { monthlyMap[month] = { collections: 0, expenses: 0 }; });
+
+            const parseMonth = (timestamp: any) => {
+                const date = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp.seconds * 1000); 
+                return date.toLocaleString("default", { month: "short" }).toUpperCase();
+            };
+
+            collectionsSnap.forEach((doc) => {
+                const data = doc.data();
+                const timestampField = data.transactionDate || data.timestamp; 
+                if (!timestampField || !data.amount) return;
+                const month = parseMonth(timestampField);
+                if (monthlyMap[month]) { monthlyMap[month].collections += Number(data.amount) || 0; }
+            });
+
+            expensesSnap.forEach((doc) => {
+                const data = doc.data();
+                const timestampField = data.transactionDate; 
+                if (!timestampField || !data.amount) return;
+                const month = parseMonth(timestampField);
+                if (monthlyMap[month]) { monthlyMap[month].expenses += Number(data.amount) || 0; }
+            });
+
+            setFinancialData(monthAbbreviations.map((month) => ({
+                month, 
+                Collections: monthlyMap[month].collections,
+                Expenses: monthlyMap[month].expenses,
+            })));
+        } catch (err) {
+            console.error("Error loading financial data:", err);
+        }
+    }, [selectedYear]); 
+    // ---------------------------------------------------------------
+
+
+    // --- EFFECT HOOKS ---
+    
+    // ⭐️ REAL-TIME CLOCK EFFECT
+    useEffect(() => {
+        const timerId = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000); // Update bawat 1 segundo
+
+        // Cleanup function
+        return () => clearInterval(timerId); 
+    }, []);
+
+    // Runs once on mount
+    useEffect(() => {
+        fetchEvents();
+        fetchAnalytics(); 
+        fetchComplaintsData();
+    }, [fetchEvents, fetchAnalytics, fetchComplaintsData]);
+
+    // Runs whenever selectedYear changes
+    useEffect(() => {
+        fetchFinanceOverview();
+        calculateHOABalance();
+    }, [selectedYear, fetchFinanceOverview, calculateHOABalance]);
+
+    
+    // ⭐️ FORMATTING using the currentTime state
+    const formattedTime = currentTime.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
     });
-    const formattedDate = figmaDate.toLocaleDateString("en-US", {
+    const formattedDate = currentTime.toLocaleDateString("en-US", {
         year: "numeric",
         month: "long",
         day: "numeric",
     });
 
+    // --- JSX RENDER ---
     return (
         <div className="min-h-screen bg-gray-100 p-6">
 
@@ -509,7 +506,7 @@ export default function Dashboard() {
                         See the overview and activities of the HOA
                     </p>
                 </div>
-                {/* Date/Time Panel (matches Figma's isolated right box) */}
+                {/* Date/Time Panel (NOW REAL-TIME) */}
                 <div className="w-[180px] bg-white p-4 text-center rounded shadow-md flex-shrink-0">
                     <p className="text-2xl font-bold text-gray-800">
                         {formattedTime}
@@ -523,19 +520,18 @@ export default function Dashboard() {
                 {/* Left Column: Stats and Charts */}
                 <div className="flex-1 space-y-6">
 
-                    {/* Stat Boxes: Combined Member Stats and Separate Balance Stat */}
+                    {/* Stat Boxes: Member Stats and Balance Stat (no change needed here) */}
                     <div className="flex flex-wrap gap-4 border-b border-gray-200 pb-4">
-                        {/* ✅ UPDATED: Member Stat Block (Combined box) */}
                         <MemberStatBlock
-                            total={totalMembers}
+                            current={currentMembersCount} 
                             active={activeMembers}
                             inactive={inactiveMembers}
                             newMembers={newMembers}
+                            rawTotal={rawTotalMembers} 
                         />
 
-                        {/* ✅ UPDATED: Current HOA Account Balance Stat Box (Separate box) */}
                         <StatBox
-                            label="Current HOA Account Balance"
+                            label={`Total Net ${selectedYear} (HOA Balance)`}
                             value={
                                 hoaBalance !== null
                                         ? `₱${hoaBalance.toLocaleString()}`
@@ -545,13 +541,17 @@ export default function Dashboard() {
                         />
                     </div>
 
-                    {/* Financial Overview Chart */}
-                    <FinancialOverview data={financialData} />
+                    {/* Financial Overview Chart with Year Selector (no change needed here) */}
+                    <FinancialOverview 
+                        data={financialData} 
+                        selectedYear={selectedYear}
+                        setSelectedYear={setSelectedYear}
+                        yearOptions={YEAR_OPTIONS}
+                    />
 
-                    {/* Bottom Section (Small Cards) */}
+                    {/* Bottom Section (Small Cards) - NOW WITH BLACK HEADERS */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <InfoCard title="Traffic Acquisition" footer="View More">
-                            {/* Pie Chart Placeholder */}
                             <div className="h-40 flex items-center justify-center">
                                 <p className="text-sm text-gray-500">
                                     [Pie chart coming soon]
@@ -578,23 +578,23 @@ export default function Dashboard() {
                             </div>
                         </InfoCard>
 
-                        {/* ✅ UPDATED: Gamitin na ang bagong FullyPaidMembersCard component */}
                         <FullyPaidMembersCard /> 
                     </div>
 
                 </div>
 
-                {/* Right Column: Upcoming Events */}
-                {/* Structure: Header -> Scrollable Content -> Sticky Footer Button */}
+                {/* Right Column: Upcoming Events (FIXED BLACK HEADER) */}
                 <div className="w-full lg:w-[350px] bg-white rounded shadow-md flex flex-col flex-shrink-0">
-                    <div className="p-4 border-b border-gray-200">
-                        <h2 className="text-lg font-semibold text-gray-800">
+                    
+                    {/* BLACK HEADER FOR UPCOMING EVENTS */}
+                    <div className="p-4 bg-gray-700 rounded-t border-b border-gray-600"> 
+                        <h2 className="text-lg font-semibold text-white">
                             Upcoming Events
                         </h2>
-                        <div className="text-sm text-gray-500 mt-1">Total {events.length} Upcoming Events</div>
+                        <div className="text-sm text-white mt-1">Total {events.length} Upcoming Events</div>
                     </div>
                     
-                    {/* Event List: Set a max height and allow scrolling */}
+                    {/* Event List */}
                     <div className="p-4 max-h-[700px] overflow-y-auto flex-grow">
                         {events.length > 0 ? (
                             events.map((event, index) => {
@@ -617,7 +617,7 @@ export default function Dashboard() {
                                         key={index}
                                         className="flex gap-4 py-3 border-b border-gray-200 last:border-b-0"
                                     >
-                                        {/* Date Box: Adjusted size and alignment to match Figma */}
+                                        {/* Date Box */}
                                         <div className="bg-[#007963] text-white text-center p-1 rounded font-bold w-16 h-16 flex flex-col justify-center items-center flex-shrink-0">
                                             <span className="text-xs leading-none">{month.toUpperCase()}</span>
                                             <span className="text-2xl leading-none">{day}</span>
@@ -626,7 +626,6 @@ export default function Dashboard() {
                                             <h3 className="font-semibold text-gray-800 text-base">
                                                 {event.title}
                                             </h3>
-                                            {/* Description is the middle line of text (e.g., Report Documents) */}
                                             {event.description && (
                                                 <p className="text-sm text-gray-600 mt-0.5">
                                                     {event.description}
@@ -644,7 +643,7 @@ export default function Dashboard() {
                         )}
                     </div>
                     
-                    {/* ✅ FIX: View Events Button moved to a sticky footer */}
+                    {/* View Events Button */}
                     <div className="p-4 border-t border-gray-200 bg-white text-center">
                         <button className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]">
                             View Events

@@ -54,29 +54,38 @@ const addExpense = async (
 };
 
 // Fetch All Expenses (Read) - No Change
-const fetchAllExpenses = async (): Promise<ExpenseRecord[]> => {
-  try {
-    const q = query(collection(db, EXPENSES_COLLECTION));
-    const querySnapshot = await getDocs(q);
+const fetchExpensesByYear = async (year: number): Promise<ExpenseRecord[]> => {
+    try {
+        // Define the start and end timestamps for the given year
+        const startOfYear = Timestamp.fromDate(new Date(year, 0, 1)); // Jan 1st
+        const endOfYear = Timestamp.fromDate(new Date(year + 1, 0, 1)); // Jan 1st of next year (exclusive)
 
-    const expenseList: ExpenseRecord[] = querySnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        purpose: data.purpose,
-        amount: data.amount,
-        transactionDate: data.transactionDate as Timestamp,
-        receiptUrl: data.receiptUrl,
-      };
-    });
+        // Query only records whose transactionDate falls within the year
+        const q = query(
+            collection(db, EXPENSES_COLLECTION),
+            where('transactionDate', '>=', startOfYear),
+            where('transactionDate', '<', endOfYear)
+        );
+        
+        const querySnapshot = await getDocs(q);
 
-    return expenseList;
-  } catch (error) {
-    console.error("Error fetching expenses:", error);
-    return [];
-  }
+        const expenseList: ExpenseRecord[] = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                purpose: data.purpose,
+                amount: data.amount,
+                transactionDate: data.transactionDate as Timestamp,
+                receiptUrl: data.receiptUrl,
+            };
+        });
+
+        return expenseList;
+    } catch (error) {
+        console.error("Error fetching expenses for year", year, ":", error);
+        return [];
+    }
 };
-
 // Fetch Total Funds (Needed for summary/balance) - No Change
 const fetchTotalFundsByYear = async (year: number): Promise<number> => {
     try {
@@ -152,102 +161,88 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
      * FIX: Correct PDF initialization for autotable.
      */
     const handleExportPDF = () => {
-        if (selectedColumns.length === 0 || !fileName.trim()) {
-            alert("Please select at least one column and provide a filename.");
-            return;
-        }
+    if (selectedColumns.length === 0 || !fileName.trim()) return;
 
-        setIsExporting(true);
+    setIsExporting(true);
 
-        if (records.length === 0) {
-            alert('Walang nakitang expenses records para i-export.');
-            setIsExporting(false);
-            onClose();
-            return;
-        }
-        
-        const { totalExpenses, totalFunds, year } = summary;
+    // FIX 1: Explicitly load and apply the jspdf-autotable plugin
+    // This resolves 'doc.autoTable is not a function' if it reoccurs
+    try {
+        const { applyPlugin } = require('jspdf-autotable');
+        applyPlugin(jsPDF);
+    } catch (e) {
+        console.error("Failed to apply jspdf-autotable plugin:", e);
+        // You can add an alert here if it fails
+    }
 
-        // --- 💡 FIX: Use the constructor logic pattern for robust autoTable access ---
-        // Checks if jsPDF is available under the default export or a specific property.
-        const DocConstructor = (jsPDF as any).jsPDF || jsPDF; 
-        const doc = new DocConstructor(); 
-        // -------------------------------------------------------------------------
+    // FIX 2: Check if there is data to export
+    if (records.length === 0) {
+        alert('Walang nakitang records para i-export.');
+        setIsExporting(false);
+        onClose();
+        return;
+    }
+    
+    // 1. Prepare Columns and Headers (Filtering)
+    const columns = ALL_COLUMNS.filter(col => selectedColumns.includes(col.key));
+    const headers = columns.map(col => col.label);
 
+    // 2. Prepare Data (Mapping and Formatting)
+    const data = records.map(record => {
+        const row: string[] = [];
+        columns.forEach(col => {
+            let value: string = ''; // Always initialize as string
 
-        // 1. Prepare Columns and Headers (Filtering)
-        const columns = ALL_COLUMNS.filter(col => selectedColumns.includes(col.key));
-        const headers = ['No.', ...columns.map(col => col.label)];
+            // Switch case to format data based on column key
+            switch(col.key) {
+                case 'purpose':
+                    value = record.purpose || 'N/A';
+                    break;
+                case 'amount':
+                    // Check if amount is a valid number before toFixed
+                    value = record.amount !== undefined && record.amount !== null 
+                        ? `P ${record.amount.toFixed(2)}`
+                        : 'P 0.00'; 
+                    break;
+                case 'transactionDate':
+                    // This is the key area for potential errors if toDate() fails
+                    value = record.transactionDate 
+                        ? record.transactionDate.toDate().toLocaleDateString('en-US') 
+                        : 'N/A';
+                    break;
+                case 'proofURL':
+                    value = record.receiptUrl ? 'Available (Link Not Included)' : 'No Proof';
+                    break;
+                default:
+                    value = 'N/A';
+            }
+            row.push(value);
+        });
+        return row;
+    });
 
-        // 2. Prepare Data (Mapping and Formatting)
-        const data = records.map((record, index) => {
-            const row: string[] = [];
-            row.push((index + 1).toString()); // Row Number
-            
-            columns.forEach(col => {
-                let value: string = '';
+    // Debug check for data array (Optional, remove in production)
+    // console.log("Final Headers:", headers);
+    // console.log("Final Data (first row):", data[0]);
 
-                switch(col.key) {
-                    case 'id':
-                        value = record.id?.substring(0, 8) || 'N/A'; 
-                        break;
-                    case 'purpose':
-                        value = record.purpose || 'N/A';
-                        break;
-                    case 'amount':
-                        value = record.amount !== undefined && record.amount !== null 
-                            ? `P ${record.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                            : 'P 0.00'; 
-                        break;
-                    case 'transactionDate':
-                        value = record.transactionDate && record.transactionDate.toDate 
-                            ? record.transactionDate.toDate().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) 
-                            : 'N/A';
-                        break;
-                    case 'receiptUrl':
-                        value = record.receiptUrl ? 'Available (View Link)' : 'No Proof';
-                        break;
-                    default:
-                        value = 'N/A';
-                }
-                row.push(value);
-            });
-            return row;
-        });
+    // 3. PDF GENERATION
+    const doc = new jsPDF(); 
+    // ... (Title and Period Text)
+    
+    // @ts-ignore
+    (doc as any).autoTable({ 
+        startY: 35, 
+        head: [headers],
+        body: data, // <--- Data is now guaranteed to be an array of string arrays
+        // ... (rest of your styles)
+    });
 
-        // 3. PDF GENERATION (Header and Summary)
-        doc.setFontSize(18);
-        doc.text(`Expense Report - Year ${year}`, 14, 20);
-        doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 28);
-
-        let startY = 38;
-        doc.setFontSize(12);
-        doc.text(`Financial Summary:`, 14, startY);
-        doc.setFontSize(10);
-        doc.text(`- Total Funds (Contributions): P ${totalFunds.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 14, startY + 6);
-        doc.text(`- Total Expenses: P ${totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 14, startY + 12);
-        
-        const balance = totalFunds - totalExpenses;
-        doc.text(`- Remaining Balance: P ${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 14, startY + 18);
-        
-        // --- AutoTable generation (with as any for TypeScript compatibility) ---
-        (doc as any).autoTable({ 
-            startY: startY + 25, 
-            head: [headers],
-            body: data, 
-            theme: 'striped',
-            styles: { fontSize: 8, cellPadding: 2 },
-            headStyles: { fillColor: [52, 73, 94] } 
-        });
-
-        // 4. Save
-        doc.save(`${fileName.trim().replace(/\s/g, '_')}.pdf`);
-        
-        setIsExporting(false);
-        onClose();
-    };
-
+    // 4. Save
+    doc.save(`${fileName}.pdf`);
+    
+    setIsExporting(false);
+    onClose();
+};
     if (!show) return null;
 
     // --- JSX Rendering (Modal UI) ---
@@ -504,16 +499,17 @@ export default function Expenses() {
 
   // --- Data Fetching: Expenses ---
   const fetchExpensesData = async () => {
-    setIsLoading(true);
-    try {
-      const expenseList = await fetchAllExpenses();
-      setRecords(expenseList);
-    } catch (error) {
-      console.error("Error fetching expenses:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        setIsLoading(true);
+        try {
+            // ⭐ CALL THE NEW FUNCTION AND PASS THE CURRENT YEAR
+            const expenseList = await fetchExpensesByYear(currentYear); 
+            setRecords(expenseList);
+        } catch (error) {
+            console.error("Error fetching expenses:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
   // --- Data Fetching: Funds ---
   const fetchFundsData = async () => {

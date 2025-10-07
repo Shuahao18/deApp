@@ -162,7 +162,10 @@ const AddPaymentModal = ({ show, onClose, onSave, monthYear }: { show: boolean, 
 
     if (!show) return null;
 
+    // Inside the AddPaymentModal component...
+
     const handleSave = async () => {
+        // ... (Existing initial validations)
         if (memberError || !formData.name || isSearching) {
              alert("Please enter a valid Account No. and ensure the Member Name is found.");
              return;
@@ -176,6 +179,24 @@ const AddPaymentModal = ({ show, onClose, onSave, monthYear }: { show: boolean, 
         let proofURL = '';
 
         try {
+            // ⭐ NEW VALIDATION LOGIC: Check for existing payment for the current month
+            const contributionsRef = collection(db, "contributions");
+            const existingPaymentQuery = query(
+                contributionsRef,
+                where("accNo", "==", formData.accNo),
+                where("monthYear", "==", monthYear) // Use the monthYear prop passed to the modal
+            );
+            
+            const existingPaymentSnapshot = await getDocs(existingPaymentQuery);
+
+            if (!existingPaymentSnapshot.empty) {
+                // If the snapshot is NOT empty, a payment already exists for this member/month
+                alert(`This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`);
+                setIsSaving(false);
+                return; // Stop the save process
+            }
+            // ⭐ END NEW VALIDATION LOGIC
+
             if (imageFile) {
                 const storageRef = ref(storage, `contributions/${formData.accNo}/${Date.now()}_${imageFile.name}`);
                 await uploadBytes(storageRef, imageFile);
@@ -184,19 +205,20 @@ const AddPaymentModal = ({ show, onClose, onSave, monthYear }: { show: boolean, 
 
             const dateToSave = new Date(formData.transactionDate);
             
+            // Proceed to save only if no existing payment was found
             await addDoc(collection(db, "contributions"), {
                 accNo: formData.accNo, 
                 name: formData.name,
                 amount: parseFloat(formData.amount.toString()),
                 paymentMethod: formData.paymentMethod,
                 recipient: formData.recipient,
-                monthYear: monthYear, 
+                monthYear: monthYear, // This is the crucial field for uniqueness
                 transactionDate: Timestamp.fromDate(dateToSave),
                 proofURL: proofURL, 
             });
 
             onSave();
-            // Reset form
+            // ... (Reset form state)
             setFormData({
                 accNo: '',
                 name: '',
@@ -215,7 +237,6 @@ const AddPaymentModal = ({ show, onClose, onSave, monthYear }: { show: boolean, 
             setIsSaving(false);
         }
     };
-    
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
@@ -608,7 +629,7 @@ export default function Contribution() {
 
   const currentMonthDisplay = useMemo(() => formatMonthYear(currentMonth), [currentMonth]);
   // Sum of payments FOR THE CURRENT MONTH
-  const totalFundsDisplay = records.reduce((sum, r) => sum + r.amount, 0).toFixed(2);
+const totalFundsDisplay = records.reduce((sum, r) => sum + r.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   
   // --- Rendering ---
   
