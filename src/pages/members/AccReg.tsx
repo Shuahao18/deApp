@@ -6,6 +6,8 @@ import {collection, getDocs, setDoc, doc, updateDoc, query, orderBy,
 import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import { getFunctions, httpsCallable } from "firebase/functions";
+
 
 interface BaseFieldProps {
   id: string;
@@ -412,6 +414,7 @@ const AccReg: React.FC = () => {
   const [showPasswordInfo, setShowPasswordInfo] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"active" | "deleted">("active");
+  const functions = getFunctions(); 
 
   const [isEditing, setIsEditing] = useState(false);
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
@@ -588,7 +591,7 @@ const AccReg: React.FC = () => {
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-
+    
     if (form.password !== form.confirm) {
       setShowPasswordInfo(true);
       setErrorMessage("Passwords do not match! Please check and try again.");
@@ -661,10 +664,13 @@ const AccReg: React.FC = () => {
   };
 
   // JSX
-  return (
+  // JSX
+  /* ---------------- Main AccReg Component JSX ---------------- */
+
+return (
     <div className="">
       {/* Header and Search */}
-      <div className="bg-teader h-20  flex justify-between items-center px-8">
+      <div className="bg-teader h-20  flex justify-between items-center px-8">
         <h1 className="text-3xl font-bold text-white">
           Account Registry ({viewMode === "active" ? "Active Accounts" : "Deleted Accounts"})
         </h1>
@@ -857,10 +863,41 @@ const AccReg: React.FC = () => {
                 <FloatingInput id="contact" label="Contact No." value={form.contact} onChange={(v) => setForm({ ...form, contact: v })} />
                 <FloatingInput id="email" label="Email Address" required value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
                 <FloatingSelect id="civilStatus" label="Civil Status" required value={form.civilStatus} onChange={(v) => setForm({ ...form, civilStatus: v })} options={["Single", "Married", "Divorced", "Widowed"]} />
-                <FloatingSelect id="role" label="Role in HOA" required value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={["Member", "Officer", "Admin"]} />
-                {isEditing && (
-                  <FloatingSelect id="status" label="Status" required value={form.status} onChange={(v) => setForm({ ...form, status: v })} options={["Active", "Inactive", "New", "Deleted"]} />
+                
+                {/* SENIOR DEVELOPER MODIFICATION: 
+                  1. Make Role non-editable in Edit Mode by using FloatingInput (read-only) 
+                     or FloatingSelect (disabled) instead of FloatingSelect (editable).
+                     I'll use FloatingInput here for a consistent read-only look.
+                */}
+                {isEditing ? (
+                  <FloatingInput id="role" label="Role in HOA" required value={form.role} onChange={() => {}} type="text" className="pointer-events-none" />
+                ) : (
+                  <FloatingSelect 
+                    id="role" 
+                    label="Role in HOA" 
+                    required 
+                    value={form.role} 
+                    onChange={(v) => setForm({ ...form, role: v })} 
+                    options={["Member","Admin"]} 
+                  />
                 )}
+                
+                {isEditing && (
+                  /* SENIOR DEVELOPER MODIFICATION: 
+                    2. Status options logic:
+                       - If status is 'New', options are ['New', 'Active'].
+                       - If status is 'Active', options are only ['Active'] (preventing demotion to 'New').
+                  */
+                  <FloatingSelect 
+                    id="status" 
+                    label="Status" 
+                    required 
+                    value={form.status} 
+                    onChange={(v) => setForm({ ...form, status: v })} 
+                    options={form.status === "Active" ? ["Active"] : ["Active", "New"]} 
+                  />
+                )}
+                
                 {!isEditing && (
                   <>
                     <FloatingInput id="password" label="Password" required value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password" onFocus={() => setShowPasswordInfo(true)} onBlur={() => setShowPasswordInfo(false)} />

@@ -2,15 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FiClock, FiPlus, FiXCircle } from "react-icons/fi";
 import { FaUsers, FaCheckCircle } from "react-icons/fa";
 import { db, storage } from "../Firebase";
-import {
-  collection,
-  query,
-  onSnapshot,
-  getDocs,
-  Timestamp,
-  doc,
-  writeBatch,
-  where,
+import { collection, query, onSnapshot, getDocs, Timestamp, doc, writeBatch, where,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -206,9 +198,6 @@ export default function ElectionDashboard() {
       }
       
       // Step 6: Delete the current election and its candidates subcollection
-      candidatesSnapshot.forEach(candidateDoc => {
-        batch.delete(doc(candidatesRef, candidateDoc.id));
-      });
       
       const electionDocRef = doc(db, "elections", electionId);
       batch.delete(electionDocRef);
@@ -545,7 +534,7 @@ export default function ElectionDashboard() {
               <select
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
-                className="bg-gray-700 text-white px-3 py-1 rounded border border-gray-600"
+                className="bg-object text-white px-3 py-1 rounded border border-gray-600"
               >
                 <option value={2025}>2025</option>
                 <option value={2024}>2024</option>

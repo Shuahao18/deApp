@@ -17,7 +17,7 @@ import AccReg from "./pages/Members/AccReg";
 import Posting from "./pages/Posting";
 import "./App.css"; // make sure this is in your main file
 import OffHoa from "./pages/Members/OffHoa";
-
+import EditModal from "./pages/EditModal"
 const router = createHashRouter([
   {
     path: "/",
@@ -37,6 +37,7 @@ const router = createHashRouter([
           { path: "members/expenses", element: <Expenses /> },
           { path: "folder", element: <Folder /> },
           { path: "complaints", element: <Complaints /> },
+          { path: "editModal", element: <EditModal /> },
           { path: "posting", element: <Posting /> },
           { path: "officials", element: <OffHoa /> },
           {path: "accounting/contribution", element: <Contribution /> },

@@ -9,7 +9,8 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "clean": "electron-forge clean"
   },
   "keywords": [],
   "author": {
@@ -47,6 +48,7 @@
     "typescript": "~5.1.6"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "autoprefixer": "^10.4.14",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

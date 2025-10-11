@@ -18,20 +18,24 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
+// Update Interface: 'end' is back and required by react-big-calendar
 interface EventType {
   id?: string;
   title: string;
   start: Date;
   end: Date;
+  description?: string; 
 }
 
 export default function CalendarEvent() {
   const [events, setEvents] = useState<EventType[]>([]);
+  
+  // New Event State: Only need 'start' from the user input
   const [newEvent, setNewEvent] = useState<{
     title: string;
     start: string;
-    end: string;
-  }>({ title: "", start: "", end: "" });
+    description: string; 
+  }>({ title: "", start: "", description: "" }); 
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
@@ -40,11 +44,29 @@ export default function CalendarEvent() {
         const querySnapshot = await getDocs(collection(db, "events"));
         const eventsFromDB = querySnapshot.docs.map((doc) => {
           const data = doc.data();
+          
+          // FIX: Safely handle Firestore Timestamp (or missing data) for start date
+          const startDate = data.start && typeof data.start.toDate === 'function' 
+            ? data.start.toDate() 
+            : new Date();
+
+          // Safely handle Firestore Timestamp (or missing data) for end date
+          let endDate = data.end && typeof data.end.toDate === 'function' 
+            ? data.end.toDate() 
+            : null;
+
+          // If 'end' is missing (e.g., from old data or a newly created point event), 
+          // set it to 1 minute after 'start' to satisfy react-big-calendar
+          if (!endDate || isNaN(endDate.getTime()) || endDate.getTime() <= startDate.getTime()) {
+            endDate = new Date(startDate.getTime() + 60000); // 1 minute later
+          }
+
           return {
             id: doc.id,
             title: data.title,
-            start: new Date(data.start.seconds * 1000),
-            end: new Date(data.end.seconds * 1000),
+            start: startDate,
+            end: endDate,
+            description: data.description || "",
           };
         }) as EventType[];
         setEvents(eventsFromDB);
@@ -57,34 +79,41 @@ export default function CalendarEvent() {
   }, []);
 
   const handleAddEvent = async () => {
-    if (!newEvent.title || !newEvent.start || !newEvent.end) {
-      alert("Please fill in all fields");
+    // Check if required fields are filled
+    if (!newEvent.title || !newEvent.start ) {
+      alert("Please fill in the Event Title and Date/Time.");
       return;
     }
 
     const startDate = new Date(newEvent.start);
-    const endDate = new Date(newEvent.end);
 
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      alert("Invalid date format");
+    if (isNaN(startDate.getTime())) {
+      alert("Invalid date format. Please use the date/time picker.");
       return;
     }
+    
+    // Calculate the 'end' date as 1 minute after the 'start' date
+    const endDate = new Date(startDate.getTime() + 60000); // + 60,000 milliseconds = 1 minute
 
     const eventToAdd: EventType = {
       title: newEvent.title,
       start: startDate,
-      end: endDate,
+      end: endDate, // Include the calculated 'end' date
+      description: newEvent.description, 
     };
 
     try {
+      // Include 'end' date and 'description' in Firestore
       const docRef = await addDoc(collection(db, "events"), {
         title: eventToAdd.title,
         start: startDate,
-        end: endDate,
+        end: endDate, 
+        description: eventToAdd.description,
       });
 
       setEvents((prev) => [...prev, { ...eventToAdd, id: docRef.id }]);
-      setNewEvent({ title: "", start: "", end: "" });
+      // Reset newEvent state
+      setNewEvent({ title: "", start: "", description: "" });
       setShowModal(false);
     } catch (e) {
       console.error("Error adding event:", e);
@@ -115,7 +144,7 @@ export default function CalendarEvent() {
             </div>
             <button
               onClick={() => setShowModal(true)}
-              className="bg-gray-700 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              className="bg-object text-white px-4 py-2 rounded-md hover:bg-blue-700"
             >
               + Add Event
             </button>
@@ -135,6 +164,7 @@ export default function CalendarEvent() {
                     .toUpperCase();
 
                   return (
+                    // START of Event Item
                     <div
                       key={event.id || index}
                       className="flex items-center gap-4 border-b pb-4"
@@ -154,6 +184,13 @@ export default function CalendarEvent() {
                         <div className="font-medium text-base">
                           {event.title}
                         </div>
+                        {/* Display description in the list (shortened) */}
+                        {event.description && (
+                          <div className="text-xs text-gray-400 italic">
+                            {event.description.substring(0, 50)}
+                            {event.description.length > 50 ? '...' : ''}
+                          </div>
+                        )}
                         <div className="text-sm text-gray-600">
                           {event.start.toLocaleDateString(undefined, {
                             weekday: "short",
@@ -162,19 +199,17 @@ export default function CalendarEvent() {
                             day: "numeric",
                           })}
                         </div>
+                        
+                        {/* Display the event time */}
                         <div className="text-xs text-gray-500">
                           {event.start.toLocaleTimeString([], {
                             hour: "2-digit",
                             minute: "2-digit",
-                          })}{" "}
-                          –{" "}
-                          {event.end.toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
                           })}
                         </div>
-                      </div>
-                    </div>
+                      </div> 
+                    </div> 
+                    // END of Event Item
                   );
                 })}
               </div>
@@ -186,7 +221,7 @@ export default function CalendarEvent() {
                 localizer={localizer}
                 events={events}
                 startAccessor="start"
-                endAccessor="end"
+                endAccessor="end" // IMPORTANT: Tells the calendar how long the event lasts
                 style={{ height: 500 }}
               />
             </div>
@@ -215,6 +250,21 @@ export default function CalendarEvent() {
                 }
                 className="w-full border border-gray-300 rounded-md px-3 py-2"
               />
+              
+              {/* Description Input */}
+              <textarea
+                placeholder="Event Description (Optional)"
+                value={newEvent.description}
+                onChange={(e) =>
+                  setNewEvent({ ...newEvent, description: e.target.value })
+                }
+                rows={3}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 resize-none"
+              />
+              
+              <label className="block text-sm font-medium text-gray-700">
+                Event Date and Time
+              </label>
               <input
                 type="datetime-local"
                 value={newEvent.start}
@@ -223,14 +273,7 @@ export default function CalendarEvent() {
                 }
                 className="w-full border border-gray-300 rounded-md px-3 py-2"
               />
-              <input
-                type="datetime-local"
-                value={newEvent.end}
-                onChange={(e) =>
-                  setNewEvent({ ...newEvent, end: e.target.value })
-                }
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
+              
               <div className="flex justify-end">
                 <button
                   onClick={handleAddEvent}

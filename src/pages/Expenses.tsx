@@ -145,7 +145,7 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
         { key: 'amount', label: 'Amount (P)' },
         { key: 'transactionDate', label: 'Date' },
         { key: 'receiptUrl', label: 'Receipt Link' },
-        { key: 'id', label: 'ID' }, // Opsyonal
+       
     ];
 
     const handleToggleColumn = (key: string) => {
@@ -597,7 +597,7 @@ export default function Expenses() {
         {/* Expenses Table (No change in rendering logic) */}
         <div className="overflow-x-auto border rounded-lg shadow-sm">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-700"> 
+            <thead className="bg-object"> 
               <tr>
                 {['Purpose', 'Amount', 'Date', 'Receipt'].map((header) => (
                   <th key={header} className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">
