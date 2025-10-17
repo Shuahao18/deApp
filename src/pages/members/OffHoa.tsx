@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, auth, storage } from '../../Firebase'; // Assuming your firebase config is here
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addDoc, where } from 'firebase/firestore';
+import { db, auth, storage } from '../../Firebase';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addDoc, where, getDocs } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Plus, MoreVertical, Edit2, X } from 'lucide-react';
@@ -14,25 +14,43 @@ interface Official {
     email: string;
     termDuration?: string;
     photoURL?: string;
-    authUid?: string; // Firebase Authentication UID
+    authUid?: string;
+    address?: string;
 }
 
 interface CommitteeMember {
     id: string;
     name: string;
-    role: string; // e.g., "Committee Head", "Member"
+    position: string;
     contactNo?: string;
     email?: string;
-    dateElected?: string; // Specific to committee members
+    dateElected?: string;
     termDuration?: string;
     photoURL?: string;
     authUid?: string;
+    address?: string;
+}
+
+interface AdminUser {
+    id?: string;
+    name: string;
+    email: string;
+    role: string;
+    position: string; // Fixed value for executive officers
+    contactNo?: string;
+    termDuration?: string;
+    photoURL?: string;
+    address?: string;
+    status: string;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 interface EditModalProps {
-    official: Official | null; // Allow null for adding new
+    official: Official | null;
     onClose: () => void;
-    isAddingNew?: boolean; // New prop to explicitly indicate add mode
+    isAddingNew?: boolean;
+    isExecutiveOfficer?: boolean;
 }
 
 interface AddMemberModalProps {
@@ -41,13 +59,13 @@ interface AddMemberModalProps {
     onClose: () => void;
 }
 
-type TabKey = "Board of Directors" | "Executive officers" | "Committee officers";
+type TabKey = "Executive officers" | "Board of Directors" | "Committee officers";
 
 interface HOABoardContentProps {
     officials: Official[];
     handleEditClick: (official: Official) => void;
     handleDeleteClick: (official: Official) => void;
-    handleAddNewOfficial: () => void; // New prop for adding a new official
+    handleAddNewOfficial: () => void;
     openMenuIndex: number | null;
     setOpenMenuIndex: React.Dispatch<React.SetStateAction<number | null>>;
 }
@@ -62,24 +80,33 @@ interface TabContentProps extends HOABoardContentProps, CommitteeContentProps {
 }
 
 // --- CONSTANTS ---
-const HOA_ROLES = ["President", "Vice President", "Secretary", "Treasurer"];
+const HOA_POSITIONS = ["President", "Vice President", "Secretary", "Treasurer"];
 
-// --- GLOBAL HELPER FUNCTION (MOVED HERE TO FIX THE ERROR) ---
+// Add these new constants for Board of Directors and Committee Officers
+const BOARD_OF_DIRECTORS_POSITIONS = [
+    "Chairman of the Board",
+    "Vice Chairman of the Board", 
+    "Board Member"
+];
 
-/**
- * Deletes a file from Firebase Storage using its download URL.
- * @param oldPhotoUrl The full URL of the photo to delete.
- */
+const COMMITTEE_OFFICERS_POSITIONS = [
+    "Auditing and Inventory Committee",
+    "Financial Management Committee",
+    "Membership and Education Committee",
+    "Peace and Order Committee",
+    "Environment Committee",
+    "Election Committee"
+];
+
+// --- GLOBAL HELPER FUNCTION ---
 const deleteOldPhoto = async (oldPhotoUrl?: string) => {
-    if (!oldPhotoUrl || !oldPhotoUrl.includes('firebasestorage.googleapis.com')) return; // Only delete Firebase storage URLs
+    if (!oldPhotoUrl || !oldPhotoUrl.includes('firebasestorage.googleapis.com')) return;
 
     try {
-        // Firebase SDK can parse the ref from the URL
         const photoRef = ref(storage, oldPhotoUrl);
         await deleteObject(photoRef);
         console.log("Old photo deleted from storage:", oldPhotoUrl);
     } catch (error: any) {
-        // Ignore if file not found, but log other errors
         if (error.code === 'storage/object-not-found') {
             console.warn("Old photo not found in storage, skipping deletion.");
         } else {
@@ -88,13 +115,56 @@ const deleteOldPhoto = async (oldPhotoUrl?: string) => {
     }
 };
 
-// --- MODAL COMPONENTS (Add/Edit) ---
+// --- HELPER FUNCTION: Sync to Admin Collection ---
+const syncToAdminCollection = async (userData: Partial<Official | CommitteeMember>, authUid: string, operation: 'create' | 'update') => {
+    try {
+        const adminData: AdminUser = {
+            name: userData.name || '',
+            email: userData.email || '',
+            role: 'Admin',
+            position: 'Executive Officer', // Fixed position for all executive officers
+            contactNo: userData.contactNo || '',
+            termDuration: userData.termDuration || '',
+            photoURL: userData.photoURL || '',
+            address: userData.address || '',
+            status: 'active',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        if (operation === 'create') {
+            await addDoc(collection(db, 'admin'), adminData);
+            console.log('✅ User synced to admin collection with status: Active', userData.email);
+        } else if (operation === 'update') {
+            const adminQuery = query(collection(db, 'admin'), where('authUid', '==', authUid));
+            const querySnapshot = await getDocs(adminQuery);
+            
+            if (!querySnapshot.empty) {
+                const adminDoc = querySnapshot.docs[0];
+                await updateDoc(doc(db, 'admin', adminDoc.id), {
+                    ...adminData,
+                    status: 'active',
+                    updatedAt: new Date()
+                });
+                console.log('✅ Admin user updated with status: Active', userData.email);
+            } else {
+                await addDoc(collection(db, 'admin'), adminData);
+                console.log('✅ New admin user created during update with status: Active', userData.email);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error syncing to admin collection:', error);
+        throw error;
+    }
+};
+
+// --- MODAL COMPONENTS ---
 
 // *********** EditOfficialModal ***********
-const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddingNew = false }) => {
+const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddingNew = false, isExecutiveOfficer = false }) => {
     const initialOfficial = official || {
         id: '', name: '', position: '', email: '',
-        contactNo: '', termDuration: '', photoURL: '', authUid: undefined
+        contactNo: '', termDuration: '', photoURL: '', authUid: undefined, address: ''
     };
 
     const [formData, setFormData] = useState({
@@ -103,6 +173,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
         contactNo: initialOfficial.contactNo || '',
         email: initialOfficial.email || '',
         termDuration: initialOfficial.termDuration || '',
+        address: initialOfficial.address || '',
         password: '',
         confirmPassword: '',
     });
@@ -114,7 +185,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
     const [error, setError] = useState<string | null>(null);
     const hasAuthAccount = !!initialOfficial.authUid;
 
-    // Clean up preview URL on unmount
     useEffect(() => {
         return () => {
             if (imagePreviewUrl && imagePreviewUrl.startsWith('blob:')) {
@@ -142,7 +212,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
             setError(null);
         } else {
             setSelectedFile(null);
-            // Revert to current official photo if nothing selected
             if (imagePreviewUrl && imagePreviewUrl.startsWith('blob:')) {
                 URL.revokeObjectURL(imagePreviewUrl);
             }
@@ -155,20 +224,18 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
         if (imagePreviewUrl && imagePreviewUrl.startsWith('blob:')) {
             URL.revokeObjectURL(imagePreviewUrl);
         }
-        setImagePreviewUrl(null); // Clear both preview and current photo (will trigger delete in save)
+        setImagePreviewUrl(null);
         setError(null);
     };
 
     const handleImageUpload = async (): Promise<string | undefined> => {
-        if (!selectedFile) return imagePreviewUrl || undefined; // If no new file, return existing or undefined
+        if (!selectedFile) return imagePreviewUrl || undefined;
 
-        // Use the official's ID if editing, or a temporary ID if adding, plus a timestamp
         const officialId = initialOfficial.id || 'new';
         const storageRef = ref(storage, `hoa_officials_photos/${officialId}_${Date.now()}_${selectedFile.name}`);
         await uploadBytes(storageRef, selectedFile);
         return getDownloadURL(storageRef);
     };
-
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -177,30 +244,26 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
 
         const { password, confirmPassword, ...dataToSave } = formData;
         let finalPayload: Partial<Official> = dataToSave;
+        let newAuthUid = initialOfficial.authUid;
 
         try {
-            // --- VALIDATION ---
             if (!dataToSave.name || !dataToSave.position || !dataToSave.email) {
                 setError("Name, Position, and Email are required fields.");
                 setIsSaving(false);
                 return;
             }
 
-            // --- PHOTO UPLOAD & DELETION ---
             const newPhotoURL = await handleImageUpload();
             finalPayload.photoURL = newPhotoURL;
 
-            // If an official had a photo previously, and a new one is uploaded or cleared
             if (!isAddingNew && initialOfficial.photoURL) {
-                if (newPhotoURL && newPhotoURL !== initialOfficial.photoURL) { // New photo uploaded
+                if (newPhotoURL && newPhotoURL !== initialOfficial.photoURL) {
                     await deleteOldPhoto(initialOfficial.photoURL);
-                } else if (!newPhotoURL && initialOfficial.photoURL) { // Photo was explicitly cleared
+                } else if (!newPhotoURL && initialOfficial.photoURL) {
                     await deleteOldPhoto(initialOfficial.photoURL);
                 }
             }
 
-
-            // --- SECURITY & ACCOUNT CREATION/LINKING LOGIC ---
             if (!hasAuthAccount && (password || confirmPassword)) {
                 if (!password || !confirmPassword) {
                     setError("Password and Confirm Password are required to create a new account.");
@@ -223,8 +286,14 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                     formData.email,
                     password
                 );
-                finalPayload.authUid = userCredential.user.uid;
+                newAuthUid = userCredential.user.uid;
+                finalPayload.authUid = newAuthUid;
+                
                 alert(`Login account successfully created and linked to Firebase Auth for ${formData.name}.`);
+
+                if (isExecutiveOfficer && newAuthUid) {
+                    await syncToAdminCollection(finalPayload, newAuthUid, 'create');
+                }
 
             } else if (hasAuthAccount && (password || confirmPassword)) {
                 setError("Security Alert: For existing accounts, use the 'Reset Password' button. Password fields are for initial setup only.");
@@ -232,7 +301,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                 return;
             }
 
-            // --- FIRESTORE OPERATION LOGIC ---
             if (isAddingNew) {
                 await addDoc(collection(db, "elected_officials"), finalPayload);
                 alert("New official added successfully!");
@@ -240,6 +308,10 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                 const officialRef = doc(db, "elected_officials", official.id);
                 await updateDoc(officialRef, finalPayload);
                 alert("Official data updated successfully!");
+
+                if (isExecutiveOfficer && newAuthUid) {
+                    await syncToAdminCollection(finalPayload, newAuthUid, 'update');
+                }
             } else {
                 setError("Invalid operation: Cannot add or update without proper context.");
                 setIsSaving(false);
@@ -289,13 +361,13 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
             <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
                 <h2 className="text-xl font-bold mb-4">
                     {isAddingNew ? "Add New HOA Official" : `Edit Official: ${initialOfficial.name}`}
+                    {isExecutiveOfficer && <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Executive Officer</span>}
                 </h2>
                 {error && (
                     <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">{error}</div>
                 )}
                 <form onSubmit={handleSubmit} className="space-y-4">
 
-                    {/* Photo Upload Section */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Profile Photo</label>
                         <div className="mt-1 flex items-center space-x-4">
@@ -331,7 +403,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                         </div>
                     </div>
 
-
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Name <span className="text-red-500">*</span></label>
                         <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
@@ -341,8 +412,8 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                         <label className="block text-sm font-medium text-gray-700">Position <span className="text-red-500">*</span></label>
                         <select name="position" value={formData.position} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
                             <option value="">Select a position</option>
-                            {HOA_ROLES.map(role => (
-                                <option key={role} value={role}>{role}</option>
+                            {HOA_POSITIONS.map(position => (
+                                <option key={position} value={position}>{position}</option>
                             ))}
                         </select>
                     </div>
@@ -355,6 +426,18 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Email (Required for Login) <span className="text-red-500">*</span></label>
                         <input type="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Address</label>
+                        <input 
+                            type="text" 
+                            name="address" 
+                            value={formData.address} 
+                            onChange={handleChange} 
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" 
+                            placeholder="Enter full address"
+                        />
                     </div>
 
                     <div>
@@ -379,7 +462,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
 
                         {!hasAuthAccount && (
                             <>
-                                <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to **create their login account**.</p>
+                                <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to create their login account.</p>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700">Password <span className="text-red-500">*</span></label>
@@ -408,8 +491,15 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                                 </div>
                             </>
                         )}
-
                     </div>
+
+                    {isExecutiveOfficer && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                            <p className="text-sm text-blue-700 font-medium">
+                                ⓘ Executive Officer: This user will be automatically added to the Admin collection with "Admin" role and "Executive Officer" position.
+                            </p>
+                        </div>
+                    )}
 
                     <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">
@@ -425,8 +515,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
     );
 };
 
-
-// *********** AddMemberModal (Secure Creation Flow) ***********
+// *********** AddMemberModal ***********
 const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose, collectionPath }) => {
     const formatCommitteeName = (name: string) =>
         name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -437,11 +526,12 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
 
     const [formData, setFormData] = useState({
         name: "",
-        role: "",
+        position: "",
         contactNo: "",
         email: "",
         dateElected: "",
         termDuration: "",
+        address: "",
         photoURL: undefined as string | undefined,
         password: "",
         confirmPassword: "",
@@ -461,27 +551,39 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
     useEffect(() => {
         if (!db || !collectionPath) return;
 
+        let positionToCheck = "Committee Head";
+        if (collectionPath === "board_of_directors") {
+            positionToCheck = "Chairman of the Board";
+        }
+
         const q = query(
             collection(db, collectionPath),
-            where("role", "==", "Committee Head")
+            where("position", "==", positionToCheck)
         );
 
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             setHeadExists(!querySnapshot.empty);
         }, (e) => {
-            console.error(`Error checking for Committee Head in ${collectionPath}:`, e);
+            console.error(`Error checking for ${positionToCheck} in ${collectionPath}:`, e);
             setHeadExists(false);
         });
 
         return () => unsubscribe();
     }, [collectionPath]);
 
-
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setError(null);
 
         const { name, value } = e.target;
-        if (name === "role" && value === "Committee Head" && headExists) {
+        
+        // Check for Chairman of the Board for board_of_directors
+        if (collectionPath === "board_of_directors" && name === "position" && value === "Chairman of the Board" && headExists) {
+            setError("Only one 'Chairman of the Board' is allowed per board.");
+            return;
+        }
+        
+        // Check for Committee Head for other committees
+        if (collectionPath !== "board_of_directors" && name === "position" && value === "Committee Head" && headExists) {
             setError("Only one 'Committee Head' is allowed per committee.");
             return;
         }
@@ -537,17 +639,26 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
         let finalPayload: Partial<CommitteeMember> = dataToAdd;
 
         try {
-            // --- VALIDATION ---
-            if (!dataToAdd.name || !dataToAdd.role || !dataToAdd.email) {
-                setError("Name, Role, and Email are required fields.");
+            if (!dataToAdd.name || !dataToAdd.position || !dataToAdd.email) {
+                setError("Name, Position, and Email are required fields.");
                 setIsAdding(false);
                 return;
             }
-            if (dataToAdd.role === "Committee Head" && headExists) {
-                setError("A 'Committee Head' already exists for this committee. Please select another role or edit the existing head.");
+            
+            // Check for Chairman of the Board restriction
+            if (collectionPath === "board_of_directors" && dataToAdd.position === "Chairman of the Board" && headExists) {
+                setError("A 'Chairman of the Board' already exists for this board. Please select another position or edit the existing chairman.");
                 setIsAdding(false);
                 return;
             }
+            
+            // Check for Committee Head restriction
+            if (collectionPath !== "board_of_directors" && dataToAdd.position === "Committee Head" && headExists) {
+                setError("A 'Committee Head' already exists for this committee. Please select another position or edit the existing head.");
+                setIsAdding(false);
+                return;
+            }
+            
             if (!password || !confirmPassword) {
                 setError("Password and Confirm Password are required to create the login account.");
                 setIsAdding(false);
@@ -564,14 +675,12 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                 return;
             }
 
-            // --- PHOTO UPLOAD ---
             if (selectedFile) {
                 finalPayload.photoURL = await handleImageUpload();
             } else {
                 finalPayload.photoURL = undefined;
             }
 
-            // --- FIREBASE AUTH ACCOUNT CREATION ---
             const userCredential = await createUserWithEmailAndPassword(
                 auth,
                 formData.email,
@@ -580,8 +689,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
             finalPayload.authUid = userCredential.user.uid;
             alert(`Login account successfully created and linked to Firebase Auth for ${formData.name}.`);
 
-
-            // --- FIRESTORE ADD LOGIC ---
             await addDoc(collection(db, collectionPath), finalPayload);
 
             alert(`${formData.name} added to ${formatCommitteeName(committeeName)} successfully!`);
@@ -618,7 +725,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                 )}
                 <form onSubmit={handleSubmit} className="space-y-4">
 
-                    {/* Photo Upload */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Profile Photo</label>
                         <div className="mt-1 flex items-center space-x-4">
@@ -660,17 +766,35 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Role <span className="text-red-500">*</span></label>
-                        <select name="role" value={formData.role} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Select a role</option>
-                            <option value="Committee Head" disabled={headExists && formData.role !== "Committee Head"}>Committee Head</option>
-                            <option value="Member">Member</option>
-                            <option value="Secretary">Secretary</option>
-                            <option value="Treasurer">Treasurer</option>
-                            {/* Add other specific roles if needed for committees */}
+                        <label className="block text-sm font-medium text-gray-700">Position <span className="text-red-500">*</span></label>
+                        <select name="position" value={formData.position} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Select a position</option>
+                            {collectionPath === "board_of_directors" ? (
+                                <>
+                                    <option value="Chairman of the Board" disabled={headExists && formData.position !== "Chairman of the Board"}>Chairman of the Board</option>
+                                    <option value="Vice Chairman of the Board">Vice Chairman of the Board</option>
+                                    <option value="Board Member">Board Member</option>
+                                </>
+                            ) : collectionPath === "committee_officers" ? (
+                                <>
+                                    <option value="Auditing and Inventory Committee">Auditing and Inventory Committee</option>
+                                    <option value="Financial Management Committee">Financial Management Committee</option>
+                                    <option value="Membership and Education Committee">Membership and Education Committee</option>
+                                    <option value="Peace and Order Committee">Peace and Order Committee</option>
+                                    <option value="Environment Committee">Environment Committee</option>
+                                    <option value="Election Committee">Election Committee</option>
+                                </>
+                            ) : (
+                                <>
+                                    <option value="Committee Head" disabled={headExists && formData.position !== "Committee Head"}>Committee Head</option>
+                                    <option value="Member">Member</option>
+                                    <option value="Secretary">Secretary</option>
+                                    <option value="Treasurer">Treasurer</option>
+                                </>
+                            )}
                         </select>
-                        {headExists && formData.role !== "Committee Head" && (
-                            <p className="text-xs text-red-500 mt-1">A Committee Head already exists. This member cannot be assigned the 'Committee Head' role.</p>
+                        {headExists && (formData.position === "Chairman of the Board" || formData.position === "Committee Head") && (
+                            <p className="text-xs text-red-500 mt-1">A {formData.position} already exists. Only one is allowed.</p>
                         )}
                     </div>
 
@@ -682,6 +806,18 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Email (Required for Login) <span className="text-red-500">*</span></label>
                         <input type="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Address</label>
+                        <input 
+                            type="text" 
+                            name="address" 
+                            value={formData.address} 
+                            onChange={handleChange} 
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" 
+                            placeholder="Enter full address"
+                        />
                     </div>
 
                     <div>
@@ -697,7 +833,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
 
                     <div className="pt-4 border-t">
                         <h3 className="text-lg font-semibold mb-2">Login Account Setup <span className="text-red-500">*</span></h3>
-                        <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to **create their login account**.</p>
+                        <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to create their login account.</p>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Password</label>
@@ -740,24 +876,24 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
     );
 };
 
-
 // *********** EditCommitteeMemberModal ***********
 interface EditCommitteeMemberModalProps {
     member: CommitteeMember;
     onClose: () => void;
-    collectionPath: string; // Needed for updates and potential re-checking unique roles
+    collectionPath: string;
 }
 
 const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ member, onClose, collectionPath }) => {
     const [formData, setFormData] = useState({
         name: member.name,
-        role: member.role,
+        position: member.position,
         contactNo: member.contactNo || '',
         email: member.email || '',
         dateElected: member.dateElected || '',
         termDuration: member.termDuration || '',
-        password: '', // For password reset, not direct change
-        confirmPassword: '', // For password reset, not direct change
+        address: member.address || '',
+        password: '',
+        confirmPassword: '',
     });
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(member.photoURL || null);
@@ -797,7 +933,7 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
             if (imagePreviewUrl && imagePreviewUrl.startsWith('blob:')) {
                 URL.revokeObjectURL(imagePreviewUrl);
             }
-            setImagePreviewUrl(member.photoURL || null); // Revert to current official photo if nothing selected
+            setImagePreviewUrl(member.photoURL || null);
         }
     };
 
@@ -817,7 +953,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
         await uploadBytes(storageRef, selectedFile);
         return getDownloadURL(storageRef);
     };
-
 
     const handlePasswordReset = async () => {
         if (!formData.email) {
@@ -845,7 +980,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
             const newPhotoURL = await handleImageUpload();
             finalPayload.photoURL = newPhotoURL;
 
-            // If a new photo is uploaded or the photo is cleared
             if (member.photoURL) {
                 if (newPhotoURL && newPhotoURL !== member.photoURL) {
                     await deleteOldPhoto(member.photoURL);
@@ -854,7 +988,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                 }
             }
 
-            // Update Firestore document
             const memberRef = doc(db, collectionPath, member.id);
             await updateDoc(memberRef, finalPayload);
             alert("Committee member updated successfully!");
@@ -876,7 +1009,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                     <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">{error}</div>
                 )}
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    {/* Photo Upload Section */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Profile Photo</label>
                         <div className="mt-1 flex items-center space-x-4">
@@ -917,13 +1049,32 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                         <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Role <span className="text-red-500">*</span></label>
-                        <select name="role" value={formData.role} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
-                            <option value="">Select a role</option>
-                            <option value="Committee Head">Committee Head</option>
-                            <option value="Member">Member</option>
-                            <option value="Secretary">Secretary</option>
-                            <option value="Treasurer">Treasurer</option>
+                        <label className="block text-sm font-medium text-gray-700">Position <span className="text-red-500">*</span></label>
+                        <select name="position" value={formData.position} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                            <option value="">Select a position</option>
+                            {collectionPath === "board_of_directors" ? (
+                                <>
+                                    <option value="Chairman of the Board">Chairman of the Board</option>
+                                    <option value="Vice Chairman of the Board">Vice Chairman of the Board</option>
+                                    <option value="Board Member">Board Member</option>
+                                </>
+                            ) : collectionPath === "committee_officers" ? (
+                                <>
+                                    <option value="Auditing and Inventory Committee">Auditing and Inventory Committee</option>
+                                    <option value="Financial Management Committee">Financial Management Committee</option>
+                                    <option value="Membership and Education Committee">Membership and Education Committee</option>
+                                    <option value="Peace and Order Committee">Peace and Order Committee</option>
+                                    <option value="Environment Committee">Environment Committee</option>
+                                    <option value="Election Committee">Election Committee</option>
+                                </>
+                            ) : (
+                                <>
+                                    <option value="Committee Head">Committee Head</option>
+                                    <option value="Member">Member</option>
+                                    <option value="Secretary">Secretary</option>
+                                    <option value="Treasurer">Treasurer</option>
+                                </>
+                            )}
                         </select>
                     </div>
                     <div>
@@ -933,6 +1084,17 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Contact Number</label>
                         <input type="text" name="contactNo" value={formData.contactNo} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Address</label>
+                        <input 
+                            type="text" 
+                            name="address" 
+                            value={formData.address} 
+                            onChange={handleChange} 
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" 
+                            placeholder="Enter full address"
+                        />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Term Duration</label>
@@ -971,7 +1133,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
     );
 };
 
-
 // *********** CommitteeContent ***********
 const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, collectionPath }) => {
     const [members, setMembers] = useState<CommitteeMember[]>([]);
@@ -984,7 +1145,7 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
     useEffect(() => {
         if (!db || !collectionPath) return;
 
-        const q = query(collection(db, collectionPath), orderBy("role", "desc"), orderBy("name"));
+        const q = query(collection(db, collectionPath), orderBy("position", "desc"), orderBy("name"));
 
         const unsubscribe = onSnapshot(
             q,
@@ -995,19 +1156,50 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                     membersList.push({
                         id: doc.id,
                         name: data.name || '',
-                        role: data.role || '',
+                        position: data.position || '',
                         contactNo: data.contactNo || '',
                         email: data.email || '',
                         termDuration: data.termDuration || '',
                         dateElected: data.dateElected || '',
+                        address: data.address || '',
                         photoURL: data.photoURL,
                         authUid: data.authUid || undefined,
                     } as CommitteeMember);
                 });
 
+                // Custom sorting based on collection type
                 const sortedMembers = membersList.sort((a, b) => {
-                    if (a.role === "Committee Head" && b.role !== "Committee Head") return -1;
-                    if (a.role !== "Committee Head" && b.role === "Committee Head") return 1;
+                    if (collectionPath === "board_of_directors") {
+                        // Sort Board of Directors: Chairman > Vice Chairman > Board Member > alphabetically
+                        const positionOrder = ["Chairman of the Board", "Vice Chairman of the Board", "Board Member"];
+                        const aIndex = positionOrder.indexOf(a.position);
+                        const bIndex = positionOrder.indexOf(b.position);
+                        
+                        if (aIndex > -1 && bIndex > -1) return aIndex - bIndex;
+                        if (aIndex > -1) return -1;
+                        if (bIndex > -1) return 1;
+                    } else if (collectionPath === "committee_officers") {
+                        // Sort Committee Officers by committee name alphabetically
+                        const committeeOrder = [
+                            "Auditing and Inventory Committee",
+                            "Election Committee", 
+                            "Environment Committee",
+                            "Financial Management Committee",
+                            "Membership and Education Committee",
+                            "Peace and Order Committee"
+                        ];
+                        const aIndex = committeeOrder.indexOf(a.position);
+                        const bIndex = committeeOrder.indexOf(b.position);
+                        
+                        if (aIndex > -1 && bIndex > -1) return aIndex - bIndex;
+                        if (aIndex > -1) return -1;
+                        if (bIndex > -1) return 1;
+                    } else {
+                        // Original logic for other committees
+                        if (a.position === "Committee Head" && b.position !== "Committee Head") return -1;
+                        if (a.position !== "Committee Head" && b.position === "Committee Head") return 1;
+                    }
+                    
                     return a.name.localeCompare(b.name);
                 });
 
@@ -1030,14 +1222,11 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
     const handleDelete = async (member: CommitteeMember) => {
         if (window.confirm(`Are you sure you want to delete ${member.name} from the ${formatCommitteeName(committeeName)}? This cannot be undone.`)) {
             try {
-                // --- TODO: Implement Firebase Auth User Deletion (Cloud Function Recommended) ---
                 if (member.authUid) {
-                    console.warn(`Attempting to delete Firebase Auth user with UID: ${member.authUid}.
-                                 This should be done via a secure backend function for production.`);
+                    console.warn(`Attempting to delete Firebase Auth user with UID: ${member.authUid}. This should be done via a secure backend function for production.`);
                 }
-                // --- Delete photo from storage if member.photoURL exists (NOW FIXED) ---
                 if (member.photoURL) {
-                     await deleteOldPhoto(member.photoURL); // Calls the global helper
+                    await deleteOldPhoto(member.photoURL);
                 }
 
                 await deleteDoc(doc(db, collectionPath, member.id));
@@ -1082,9 +1271,8 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                                     <span className="text-gray-600 font-medium">Profile Image</span>
                                 )}
                             </div>
-                            <div className={`p-4 relative flex-grow ${m.role === "Committee Head" ? 'bg-green-700 text-white' : 'bg-green-800 text-white'}`}>
+                            <div className={`p-4 relative flex-grow ${m.position === "Chairman of the Board" || m.position === "Committee Head" ? 'bg-green-700 text-white' : 'bg-green-800 text-white'}`}>
 
-                                {/* Dropdown Menu */}
                                 <div className="absolute top-2 right-2">
                                     <button
                                         className="text-white hover:text-gray-300"
@@ -1112,9 +1300,10 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                                 </div>
 
                                 <p className="text-lg font-bold truncate">{m.name}</p>
-                                <p className="font-semibold border-b border-green-500/50 pb-1 mb-2">{m.role}</p>
+                                <p className="font-semibold border-b border-green-500/50 pb-1 mb-2">{m.position}</p>
                                 <p className="text-sm"><span className="font-medium">Contact:</span> {m.contactNo || 'N/A'}</p>
                                 <p className="text-sm truncate"><span className="font-medium">Email:</span> {m.email || 'N/A'}</p>
+                                <p className="text-sm"><span className="font-medium">Address:</span> {m.address || 'N/A'}</p>
                                 <p className="text-sm"><span className="font-medium">Term:</span> {m.termDuration || 'N/A'}</p>
                                 {m.authUid ? (
                                     <p className="text-xs font-semibold text-yellow-300 mt-1">✓ Login Account Linked</p>
@@ -1172,7 +1361,6 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
                                 )}
                             </div>
                             <div className="w-2/3 bg-green-800 text-white p-4 relative">
-                                {/* Dropdown Menu */}
                                 <div className="absolute top-2 right-2">
                                     <button
                                         className="text-white hover:text-gray-300"
@@ -1181,7 +1369,6 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
                                         <MoreVertical />
                                     </button>
 
-                                    {/* Menu Content */}
                                     {openMenuIndex === index && (
                                         <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 text-gray-800">
                                             <button
@@ -1200,11 +1387,11 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
                                     )}
                                 </div>
 
-                                {/* Official Details */}
                                 <p className="text-lg font-bold truncate">{o.name}</p>
                                 <p className="font-semibold border-b border-green-500/50 pb-1 mb-2">{o.position}</p>
                                 <p className="text-sm"><span className="font-medium">Contact:</span> {o.contactNo || 'N/A'}</p>
                                 <p className="text-sm truncate"><span className="font-medium">Email:</span> {o.email || 'N/A'}</p>
+                                <p className="text-sm"><span className="font-medium">Address:</span> {o.address || 'N/A'}</p>
                                 <p className="text-sm"><span className="font-medium">Term:</span> {o.termDuration || 'N/A'}</p>
                                 {o.authUid ? (
                                     <p className="text-xs font-semibold text-yellow-300 mt-1">✓ Login Account Linked</p>
@@ -1222,15 +1409,14 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
     );
 }
 
-// *********** TabContent (Refactored with config map) ***********
+// *********** TabContent ***********
 const COMMITTEE_COLLECTIONS: Record<string, string> = {
-     "Executive officers": "executive_officers", // BINAGO ITO
-     "Committee officers": "committee_officers",
+    "Board of Directors": "board_of_directors",
+    "Committee officers": "committee_officers",
 };
 
 const TabContent: React.FC<TabContentProps> = (props) => {
-
-    if (props.tab === "Board of Directors") {
+    if (props.tab === "Executive officers") {
         return <HOABoardContent {...props} />;
     }
 
@@ -1243,16 +1429,14 @@ const TabContent: React.FC<TabContentProps> = (props) => {
     return <CommitteeContent committeeName={props.tab} collectionPath={collectionPath} />;
 };
 
-
 // --- MAIN COMPONENT ---
 export default function OffHoa() {
     const [officials, setOfficials] = useState<Official[]>([]);
     const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
     const [officialToEdit, setOfficialToEdit] = useState<Official | null>(null);
     const [officialToAdd, setOfficialToAdd] = useState<boolean>(false);
-    const [activeTab, setActiveTab] = useState<TabKey>("Board of Directors");
+    const [activeTab, setActiveTab] = useState<TabKey>("Executive officers");
 
-    // --- Hook for HOA Boards of members ---
     useEffect(() => {
         if (!db) return;
 
@@ -1271,14 +1455,15 @@ export default function OffHoa() {
                         contactNo: data.contactNo || '',
                         email: data.email || '',
                         termDuration: data.termDuration || '',
+                        address: data.address || '',
                         photoURL: data.photoURL,
                         authUid: data.authUid || undefined,
                     } as Official);
                 });
                 const sortedOfficials = officialsList.sort((a, b) => {
-                    const roleOrder = ["President", "Vice President", "Secretary", "Treasurer"];
-                    const aIndex = roleOrder.indexOf(a.position);
-                    const bIndex = roleOrder.indexOf(b.position);
+                    const positionOrder = ["President", "Vice President", "Secretary", "Treasurer"];
+                    const aIndex = positionOrder.indexOf(a.position);
+                    const bIndex = positionOrder.indexOf(b.position);
 
                     if (aIndex > -1 && bIndex > -1) return aIndex - bIndex;
                     if (aIndex > -1) return -1;
@@ -1311,14 +1496,11 @@ export default function OffHoa() {
     const handleDeleteClick = async (official: Official) => {
         if (window.confirm(`Are you sure you want to permanently delete the official: ${official.name} (${official.position})? This action cannot be undone.`)) {
             try {
-                // --- TODO: Implement Firebase Auth User Deletion (Cloud Function Recommended) ---
                 if (official.authUid) {
-                    console.warn(`Attempting to delete Firebase Auth user with UID: ${official.authUid}.
-                                 This should be done via a secure backend function for production.`);
+                    console.warn(`Attempting to delete Firebase Auth user with UID: ${official.authUid}. This should be done via a secure backend function for production.`);
                 }
-                // --- Delete photo from storage if official.photoURL exists (NOW FIXED) ---
                 if (official.photoURL) {
-                    await deleteOldPhoto(official.photoURL); // Calls the global helper
+                    await deleteOldPhoto(official.photoURL);
                 }
 
                 await deleteDoc(doc(db, "elected_officials", official.id));
@@ -1331,14 +1513,13 @@ export default function OffHoa() {
         setOpenMenuIndex(null);
     };
 
-    const tabs: TabKey[] = ["Board of Directors", "Executive officers", "Committee officers"];
+    const tabs: TabKey[] = ["Executive officers", "Board of Directors", "Committee officers"];
 
     return (
         <div className="bg-gray-50 min-h-screen">
             <div className="bg-teader p-6">
                 <h1 className="text-2xl text-white font-semibold">HOA Officials</h1>
             </div>
-            {/* Tab Navigation */}
             <div className="border-b border-gray-200 mb-6 ">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     {tabs.map((tab) => (
@@ -1360,7 +1541,6 @@ export default function OffHoa() {
                 </nav>
             </div>
 
-            {/* Tab Content Area */}
             <div className="bg-white p-6 shadow-xl rounded-lg">
                 <TabContent
                     tab={activeTab}
@@ -1370,16 +1550,16 @@ export default function OffHoa() {
                     handleAddNewOfficial={handleAddNewOfficial}
                     openMenuIndex={openMenuIndex}
                     setOpenMenuIndex={setOpenMenuIndex}
-                    committeeName={activeTab === "Board of Directors" ? "" : activeTab}
-                    collectionPath={activeTab === "Board of Directors" ? "" : (COMMITTEE_COLLECTIONS[activeTab] || "")}
+                    committeeName={activeTab === "Executive officers" ? "" : activeTab}
+                    collectionPath={activeTab === "Executive officers" ? "" : (COMMITTEE_COLLECTIONS[activeTab] || "")}
                 />
             </div>
 
-            {/* Modals for HOA Board Officials */}
             {(officialToEdit || officialToAdd) && (
                 <EditOfficialModal
                     official={officialToEdit}
                     isAddingNew={officialToAdd}
+                    isExecutiveOfficer={activeTab === "Executive officers"}
                     onClose={() => {
                         setOfficialToEdit(null);
                         setOfficialToAdd(false);

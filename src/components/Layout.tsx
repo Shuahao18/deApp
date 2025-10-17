@@ -1,54 +1,63 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
-import { auth } from "../Firebase"; // Adjust the path based on your project structure
+// 🚨 IMPORTANT: Make sure your '../Firebase' file exports 'auth' and 'db'
+import { auth, db } from "../Firebase"; 
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 
 // --- Import Icons (Using lucide-react as an example) ---
 import {
     LayoutDashboard,
     Calendar,
-    ArrowDown, // For Accounting Dropdown
-    ArrowRight, // For Accounting Dropdown
     Users,
     Folder,
-    ClipboardList,
+    ClipboardList, 
     Image,
-    ClipboardCheck, // For HOA Officials
+    ClipboardCheck, 
     Archive,
     LogOut,
-    ChevronDown, // For Dropdown
-    ChevronRight, // For Dropdown
-    DollarSign, // For Accounting items
-    UserPlus, // For Account Registration
-    ArrowRightCircle, // Used as general Arrow placeholder
-    Home, // Placeholder for general Dashboard icon
+    ChevronDown, 
+    ChevronRight, 
+    DollarSign, 
+    ArrowRightCircle, 
+    Home, 
 } from "lucide-react";
 
 
 // --- Utility Component for Menu Items ---
-// This ensures consistent styling for all links
 interface SidebarLinkProps {
     to: string;
     icon: React.ReactNode;
     label: string;
+    badgeCount?: number; 
 }
 
-const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label }) => {
+const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label, badgeCount }) => {
     const location = useLocation();
     const isActive = location.pathname === to;
     
     // Figma/UI accurate styling
     const activeClass = isActive
-        ? "bg-green-700 font-semibold" // Active background is slightly darker/solid green
-        : "hover:bg-green-800 text-gray-200 hover:text-white"; // Hover state
+        ? "bg-green-700 font-semibold" 
+        : "hover:bg-green-800 text-gray-200 hover:text-white"; 
 
     return (
         <Link
             to={to}
-            className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeClass}`}
+            // Added justify-between to push the badge to the right
+            className={`flex items-center space-x-3 p-3 rounded-lg transition-colors justify-between ${activeClass}`} 
         >
-            {icon}
-            <span className="text-sm">{label}</span>
+            <div className="flex items-center space-x-3">
+                {icon}
+                <span className="text-sm">{label}</span>
+            </div>
+            
+            {/* 🎯 UPDATED LOGIC: Only show badge if badgeCount exists and is greater than 0 */}
+            {badgeCount !== undefined && badgeCount > 0 && (
+                <span className="ml-auto bg-red-500 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full">
+                    {badgeCount}
+                </span>
+            )}
         </Link>
     );
 };
@@ -56,13 +65,40 @@ const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label }) => {
 
 const Layout = () => {
     const [isAccountingOpen, setIsAccountingOpen] = useState(false);
-    const [isMembersOpen, setIsMembersOpen] = useState(false);
+    // State to hold the count fetched from Firestore
+    const [newComplaintsCount, setNewComplaintsCount] = useState(0); 
     const navigate = useNavigate();
     
     // Custom color variable (assuming mainColor is the deep green)
     const mainBg = "bg-mainColor"; 
-    const headerColor = "bg-headerColor"; // Slightly lighter for the logo area
-    const hoverColor = "hover:bg-hover";
+    const headerColor = "bg-headerColor";
+    const hoverColor = "hover:bg-green-800";
+
+    // ---------------------------------------------
+    // ## FIREBASE REALTIME COMPLAINTS COUNT LOGIC ##
+    // ---------------------------------------------
+    useEffect(() => {
+        // 1. Create the query: 'complaints' collection, filter by 'status' == 'New'
+        // 🎯 FIX: Changed "new" to "New" to match Firestore data case-sensitivity.
+        const complaintsQuery = query(
+            collection(db, "complaints"),
+            where("status", "==", "new") 
+        );
+
+        // 2. Set up the real-time listener (onSnapshot)
+        const unsubscribe = onSnapshot(complaintsQuery, (querySnapshot) => {
+            // querySnapshot.size gives the exact number of matching documents
+            const count = querySnapshot.size;
+            setNewComplaintsCount(count);
+        }, (error) => {
+            console.error("Error fetching new complaints count:", error);
+            // Fallback in case of error
+            setNewComplaintsCount(0); 
+        });
+
+        // 3. Cleanup: Return the unsubscribe function to stop listening
+        return () => unsubscribe();
+    }, []); // Empty dependency array means this runs only once on mount
 
     const handleLogout = async () => {
         try {
@@ -78,9 +114,8 @@ const Layout = () => {
             {/* Sidebar (Fixed Width w-64, Deep Green background) */}
             <div className={`w-64 ${mainBg} text-white flex flex-col h-full shadow-2xl`}>
                 
-                {/* --- 1. Logo/Title Area (Matching Figma's green header) --- */}
-                <div className={`p-4 ${headerColor} flex items-center justify-center h-20 shadow-md`}>
-                    {/* Placeholder for your HOA Logo/Image */}
+                {/* --- 1. Logo/Title Area --- */}
+                <div className={`p-4 ${headerColor} flex items-center justify-center h-15 shadow-md`}>
                     <div className="w-8 h-8 mr-2 bg-white rounded-full flex items-center justify-center">
                         <Home className="w-5 h-5 text-green-900"/>
                     </div>
@@ -137,14 +172,12 @@ const Layout = () => {
                         )}
                     </div>
 
-                      <SidebarLink 
+                    <SidebarLink 
                         to="/accReg"
-                        icon={<ClipboardList className="w-5 h-5" />}
+                        icon={<Users className="w-5 h-5" />}
                         label="Members"
                     />
 
-                    {/* --- Static Links (Simplified for consistency) --- */}
-                    
                     {/* Folders */}
                     <SidebarLink 
                         to="/folder"
@@ -152,11 +185,12 @@ const Layout = () => {
                         label="Folders"
                     />
                     
-                    {/* Complaints */}
+                    {/* Complaints (WITH REALTIME BADGE COUNT) */}
                     <SidebarLink 
                         to="/complaints"
                         icon={<ClipboardList className="w-5 h-5" />}
                         label="Complaints"
+                        badgeCount={newComplaintsCount} 
                     />
 
                     {/* Posting */}
@@ -166,7 +200,7 @@ const Layout = () => {
                         label="Posting"
                     />
                     
-                    {/* HOA Officials (Matching the active page in your screenshot) */}
+                    {/* HOA Officials */}
                     <SidebarLink 
                         to="/officials"
                         icon={<ClipboardCheck className="w-5 h-5" />}

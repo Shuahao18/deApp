@@ -5,14 +5,14 @@ import {
   FiChevronRight,
   FiDownload,
   FiRefreshCw,
+  FiEdit,
 } from "react-icons/fi";
-// IMPORT FIX: KAILANGAN ITO PARA GUMANA ANG jsPDF SA ExportModal
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { X, Check } from "lucide-react";
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 
-// 💡 SIGURADUHIN NA TAMA ANG PATH MO DITO
-// Dito nagkakaroon ng error ang marami: dapat tama ang path ng Firebase config ninyo.
 import { db, storage } from "../Firebase";
 import {
   collection,
@@ -30,21 +30,22 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- TYPES ---
 interface Member {
+  id?: string; // ADDED: Document ID
   accNo: string;
   firstName: string;
-  middleName?: string; // Optional field
+  middleName?: string;
   surname: string;
-  dateOfBirth: Date | string; // Depende sa kung paano mo sina-save
+  dateOfBirth: Date | string;
   emailAddress: string;
   civilStatus: string;
   roleInHOA: string;
-  status: "Active" | "Inactive" | "Deleted"; // Ito ang critical field
-  statusUpdatedAt?: Date; // Optional field
-  // Idagdag ang iba pang fields na meron sa inyong "members" collection
+  status: "Active" | "Inactive" | "Deleted";
+  statusUpdatedAt?: Date;
 }
 
 type ContributionRecord = {
   id: string;
+  userId: string; // ADDED: userId field
   accNo: string;
   name: string;
   amount: number;
@@ -52,20 +53,20 @@ type ContributionRecord = {
   recipient: string;
   transactionDate: Timestamp;
   proofURL: string;
+  monthYear: string;
 };
 
 type ContributionSummary = {
-  totalFunds: number; // Total Funds for the *Current Year*
+  totalFunds: number;
   totalMembers: number;
   paidMembers: number;
   unpaidMembers: number;
-  contributionAmount: number; // The standard monthly fee (P 30.00)
+  contributionAmount: number;
 };
 
 // --- HELPER FUNCTIONS ---
 
 const fetchTotalMembers = async (): Promise<number> => {
-  // NOTE: Only counts members where status is not 'Deleted' (Active Members)
   try {
     const membersSnapshot = await getDocs(
       query(collection(db, "members"), where("status", "!=", "Deleted"))
@@ -73,7 +74,7 @@ const fetchTotalMembers = async (): Promise<number> => {
     return membersSnapshot.docs.length;
   } catch (error) {
     console.error("Error fetching total members:", error);
-    return 0; // Fallback to 0 or handle error appropriately
+    return 0;
   }
 };
 
@@ -81,106 +82,59 @@ const formatMonthYear = (date: Date) => {
   return date.toLocaleString("en-US", { month: "long", year: "numeric" });
 };
 
-// ----------------------------------------------------
-// --- MEMBER STATUS CHECK FUNCTION (WITH CONSOLE LOGS) ---
-// ----------------------------------------------------
-
-/**
- * Nagche-check at nag-uupdate ng status ng member base sa huling bayad.
- * Gumagamit ng 1-minute test threshold para sa mabilisang debugging.
- */
-// ASSUMPTION: 'db', 'query', 'collection', 'where', 'limit', 'getDocs', 'updateDoc', at 'formatMonthYear' functions are imported.
-// ASSUMPTION: 'Member' type is defined.
-
-// --- START: CONFIGURATION FOR TESTING ---
-// Set test duration to 2 minutes (120,000 milliseconds)
+// --- MEMBER STATUS CHECK FUNCTION ---
 const checkAndUpdateMemberStatus = async () => {
   try {
-    console.log(
-      "--- 🚀 STARTING STATUS CHECK (CALENDAR MONTH DUE DATE) 🚀 ---"
-    );
+    console.log("--- 🚀 STARTING STATUS CHECK (CALENDAR MONTH DUE DATE) 🚀 ---");
 
     const membersSnap = await getDocs(collection(db, "members"));
-
-    const today = new Date(); // 1. I-DEFINE ANG BUWAN NA DAPAT SISINGILIN (NAKARAAANG BUWAN)
-
+    const today = new Date();
     const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-
-    const monthYearToCheck = formatMonthYear(lastMonth); // e.g., "September 2025"
-    // 2. I-DEFINE KUNG KAILAN MATATAPOS ANG GRACE PERIOD (e.g., End of Current Month)
-    // Ang Due Date ay Ika-30 ng Current Month (e.g., October 30)
-
-    const dueEnforcementDate = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      30
-    ); // Simulan ang Enforcement sa 12:00 AM ng susunod na araw, para generous
-
+    const monthYearToCheck = formatMonthYear(lastMonth);
+    
+    const dueEnforcementDate = new Date(today.getFullYear(), today.getMonth(), 30);
     const gracePeriodEnforcementStarts = new Date(dueEnforcementDate);
-
-    gracePeriodEnforcementStarts.setDate(dueEnforcementDate.getDate() + 1); // e.g., November 1st, 12:00 AM
-    // **CRITICAL CHECK**: Tapos na ba ang palugit? (e.g., November 1st na ba?)
-
-    const isPastDueDate =
-      today.getTime() >= gracePeriodEnforcementStarts.getTime();
+    gracePeriodEnforcementStarts.setDate(dueEnforcementDate.getDate() + 1);
+    
+    const isPastDueDate = today.getTime() >= gracePeriodEnforcementStarts.getTime();
 
     console.log(`Checking dues for: ${monthYearToCheck}`);
-
-    console.log(
-      `Grace Period Enforcement Starts On: ${gracePeriodEnforcementStarts.toDateString()}`
-    );
+    console.log(`Grace Period Enforcement Starts On: ${gracePeriodEnforcementStarts.toDateString()}`);
 
     if (!isPastDueDate) {
-      console.log(
-        "GRACE PERIOD IS ACTIVE. NO STATUS CHANGE WILL BE ENFORCED YET."
-      ); // Huwag muna mag-update ng status kung hindi pa tapos ang palugit
-
+      console.log("GRACE PERIOD IS ACTIVE. NO STATUS CHANGE WILL BE ENFORCED YET.");
       return;
-    } // --- LOGIC NA GAGANA LANG KAPAG TAPOS NA ANG DUE DATE (e.g., November 1st onwards) ---
+    }
 
     for (const memberDoc of membersSnap.docs) {
       const member = memberDoc.data() as Member;
-
       const memberAccNo = member.accNo;
-
       let newStatus = member.status;
 
-      if (member.status === "Deleted" || !memberAccNo) continue; // 3. I-CHECK KUNG MAY BAYAD PARA SA TARGET MONTH (e.g., "September 2025")
+      if (member.status === "Deleted" || !memberAccNo) continue;
 
       const contributionQuery = query(
         collection(db, "contributions"),
-
         where("accNo", "==", memberAccNo),
-
-        where("monthYear", "==", monthYearToCheck), // Tinitingnan ang bayad ng Setyembre
-
+        where("monthYear", "==", monthYearToCheck),
         limit(1)
       );
 
       const paymentSnap = await getDocs(contributionQuery);
-
-      const paidForLastMonth = !paymentSnap.empty; // 4. ANG CORRECTED DESISYON: Logic Reversal Fix
+      const paidForLastMonth = !paymentSnap.empty;
 
       if (!paidForLastMonth) {
-        // ✅ Walang bayad na nakita at tapos na ang Due Date = INACTIVE
-
         newStatus = "Inactive";
       } else {
-        // ✅ May bayad para sa nakaraang buwan = ACTIVE
-
         newStatus = "Active";
-      } // 5. I-UPDATE ANG STATUS KUNG MAY PAGBABAGO
+      }
 
       if (newStatus !== member.status) {
         await updateDoc(memberDoc.ref, {
           status: newStatus,
-
           statusUpdatedAt: today,
         });
-
-        console.log(
-          `Status updated for ${member.firstName} (${memberAccNo}): ${member.status} -> ${newStatus}`
-        );
+        console.log(`Status updated for ${member.firstName} (${memberAccNo}): ${member.status} -> ${newStatus}`);
       }
     }
 
@@ -189,11 +143,245 @@ const checkAndUpdateMemberStatus = async () => {
     console.error("CRITICAL ERROR IN STATUS CHECK:", error);
   }
 };
-// ----------------------------------------------------
-// --- SEPARATE COMPONENTS (StatBox, AddPaymentModal, ExportModal) ---
-// ----------------------------------------------------
 
-/** Reusable Stat Box component */
+// --- EDIT PAYMENT MODAL COMPONENT ---
+const EditPaymentModal = ({
+  show,
+  onClose,
+  onSave,
+  record,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  record: ContributionRecord | null;
+}) => {
+  const [formData, setFormData] = useState({
+    accNo: "",
+    name: "",
+    amount: 30.0,
+    paymentMethod: "Cash Payment",
+    recipient: "",
+    transactionDate: new Date().toISOString().substring(0, 10),
+  });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (record) {
+      setFormData({
+        accNo: record.accNo,
+        name: record.name,
+        amount: record.amount,
+        paymentMethod: record.paymentMethod,
+        recipient: record.recipient,
+        transactionDate: record.transactionDate
+          .toDate()
+          .toISOString()
+          .substring(0, 10),
+      });
+      setImageFile(null);
+    }
+  }, [record]);
+
+  if (!show || !record) return null;
+
+  const handleSave = async () => {
+    if (!formData.amount || !formData.recipient || !formData.transactionDate) {
+      alert("Please fill in all required payment details.");
+      return;
+    }
+
+    setIsSaving(true);
+    let proofURL = record.proofURL;
+
+    try {
+      if (imageFile) {
+        const storageRef = ref(
+          storage,
+          `contributions/${formData.accNo}/${Date.now()}_${imageFile.name}`
+        );
+        await uploadBytes(storageRef, imageFile);
+        proofURL = await getDownloadURL(storageRef);
+      }
+
+      const dateToSave = new Date(formData.transactionDate);
+      
+      await updateDoc(doc(db, "contributions", record.id), {
+        accNo: formData.accNo,
+        name: formData.name,
+        amount: parseFloat(formData.amount.toString()),
+        paymentMethod: formData.paymentMethod,
+        recipient: formData.recipient,
+        transactionDate: Timestamp.fromDate(dateToSave),
+        proofURL: proofURL,
+        // userId remains unchanged when editing
+      });
+
+      onSave();
+      onClose();
+    } catch (error) {
+      console.error("Error updating contribution:", error);
+      alert("Failed to update payment. Please check console for details.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+        <h2 className="text-xl font-bold mb-4 border-b pb-2">
+          Edit Payment Details
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Update the payment information below.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium">Account Number</label>
+            <input
+              type="text"
+              value={formData.accNo}
+              readOnly
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-gray-100 focus:outline-none cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Member Name</label>
+            <input
+              type="text"
+              value={formData.name}
+              readOnly
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-gray-100 focus:outline-none cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">
+              Name of Recipient
+            </label>
+            <input
+              type="text"
+              value={formData.recipient}
+              onChange={(e) =>
+                setFormData({ ...formData, recipient: e.target.value })
+              }
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
+              placeholder="Enter recipient's name"
+              disabled={isSaving}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Payment Method</label>
+            <select
+              value={formData.paymentMethod}
+              onChange={(e) =>
+                setFormData({ ...formData, paymentMethod: e.target.value })
+              }
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
+              disabled={isSaving}
+            >
+              <option value="Cash Payment">Cash Payment</option>
+              <option value="GCash">GCash</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium">
+                Date of Transaction
+              </label>
+              <input
+                type="date"
+                value={formData.transactionDate}
+                onChange={(e) =>
+                  setFormData({ ...formData, transactionDate: e.target.value })
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
+                disabled={isSaving}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">
+                Amount of Payment
+              </label>
+              <input
+                type="number"
+                value={formData.amount}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    amount: parseFloat(e.target.value) || 0,
+                  })
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
+                placeholder="Enter the payment value"
+                disabled={isSaving}
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <label className="block text-sm font-medium mb-1">
+              Proof of Payment (Optional)
+            </label>
+            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition cursor-pointer">
+              {imageFile ? (
+                <p className="text-sm text-green-600">
+                  New file selected: {imageFile.name}
+                </p>
+              ) : record.proofURL ? (
+                <p className="text-sm text-blue-600">
+                  Current proof: {record.id.substring(0, 4)}.jpg
+                </p>
+              ) : (
+                <p className="text-gray-500">
+                  Upload an image or drag and drop
+                </p>
+              )}
+              <input
+                type="file"
+                onChange={(e) =>
+                  setImageFile(e.target.files ? e.target.files[0] : null)
+                }
+                className="opacity-0 absolute inset-0 cursor-pointer"
+                disabled={isSaving}
+              />
+            </div>
+            {record.proofURL && !imageFile && (
+              <p className="text-xs text-gray-500 mt-1">
+                Leave empty to keep current proof of payment
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
+          >
+            {isSaving ? "Updating..." : "Update Payment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- SEPARATE COMPONENTS (StatBox, AddPaymentModal, ExportModal) ---
 const StatBox = ({
   title,
   value,
@@ -227,8 +415,8 @@ const StatBox = ({
   if (isMinimal) {
     return (
       <div className="flex flex-col">
-                        <div className={`${titleSize}`}>{title}</div>           
-            <div className={`${valueSize}`}>{value}</div>           {" "}
+        <div className={`${titleSize}`}>{title}</div>
+        <div className={`${valueSize}`}>{value}</div>
       </div>
     );
   }
@@ -236,13 +424,12 @@ const StatBox = ({
     <div
       className={`rounded-lg transition duration-150 ${sizeClass} ${colorClass}`}
     >
-                  <div className={titleSize}>{title}</div>           {" "}
+      <div className={titleSize}>{title}</div>
       <div
         className={`${valueSize} ${isPrimary ? "text-white" : "text-gray-900"}`}
       >
         {value}
       </div>
-             {" "}
     </div>
   );
 };
@@ -271,16 +458,19 @@ const AddPaymentModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [memberError, setMemberError] = useState("");
+  const [memberId, setMemberId] = useState(""); // ADDED: Store member document ID
 
   const fetchMemberDetails = async (accNo: string) => {
     if (accNo.length < 3) {
       setFormData((prev) => ({ ...prev, name: "" }));
       setMemberError("");
+      setMemberId(""); // Reset memberId
       return;
     }
 
     setIsSearching(true);
     setMemberError("");
+    setMemberId(""); // Reset memberId
     try {
       const membersRef = collection(db, "members");
       const q = query(
@@ -291,12 +481,11 @@ const AddPaymentModal = ({
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        setMemberError(
-          `Account No. ${accNo} not found or is inactive/deleted.`
-        );
+        setMemberError(`Account No. ${accNo} not found or is inactive/deleted.`);
         setFormData((prev) => ({ ...prev, name: "" }));
       } else {
-        const memberData = querySnapshot.docs[0].data();
+        const memberDoc = querySnapshot.docs[0];
+        const memberData = memberDoc.data();
         const fullName = [
           memberData.surname,
           memberData.firstname,
@@ -309,6 +498,7 @@ const AddPaymentModal = ({
           name: fullName || "N/A",
           amount: memberData.default_dues || 30.0,
         }));
+        setMemberId(memberDoc.id); // ADDED: Store the member document ID as userId
         setMemberError("");
       }
     } catch (error) {
@@ -326,20 +516,22 @@ const AddPaymentModal = ({
 
     return () => {
       clearTimeout(handler);
-    }; // eslint-disable-next-line react-hooks/exhaustive-deps
+    };
   }, [formData.accNo]);
 
   if (!show) return null;
 
   const handleSave = async () => {
     if (memberError || !formData.name || isSearching) {
-      alert(
-        "Please enter a valid Account No. and ensure the Member Name is found."
-      );
+      alert("Please enter a valid Account No. and ensure the Member Name is found.");
       return;
     }
     if (!formData.amount || !formData.recipient || !formData.transactionDate) {
       alert("Please fill in all required payment details.");
+      return;
+    }
+    if (!memberId) { // ADDED: Check if memberId is available
+      alert("Member information is not complete. Please check the account number.");
       return;
     }
 
@@ -357,11 +549,9 @@ const AddPaymentModal = ({
       const existingPaymentSnapshot = await getDocs(existingPaymentQuery);
 
       if (!existingPaymentSnapshot.empty) {
-        alert(
-          `This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`
-        );
+        alert(`This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`);
         setIsSaving(false);
-        return; // Stop the save process
+        return;
       }
 
       if (imageFile) {
@@ -375,6 +565,7 @@ const AddPaymentModal = ({
 
       const dateToSave = new Date(formData.transactionDate);
       await addDoc(collection(db, "contributions"), {
+        userId: memberId, // ADDED: Include userId field
         accNo: formData.accNo,
         name: formData.name,
         amount: parseFloat(formData.amount.toString()),
@@ -385,7 +576,7 @@ const AddPaymentModal = ({
         proofURL: proofURL,
       });
 
-      onSave(); // Reset form state
+      onSave();
       setFormData({
         accNo: "",
         name: "",
@@ -396,6 +587,7 @@ const AddPaymentModal = ({
       });
       setImageFile(null);
       setMemberError("");
+      setMemberId(""); // Reset memberId
     } catch (error) {
       console.error("Error saving contribution:", error);
       alert("Failed to save payment. Please check console for details.");
@@ -406,23 +598,17 @@ const AddPaymentModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                  {/* ... (Your AddPaymentModal JSX) ... */}
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
-                       {" "}
         <h2 className="text-xl font-bold mb-4 border-b pb-2">
           Payment Details Form
         </h2>
-                       {" "}
         <p className="text-sm text-gray-500 mb-4">
           Please fill out the form below to complete the transaction.
         </p>
-                                       {" "}
+
         <div className="space-y-4">
-                             {" "}
           <div>
-                                   {" "}
             <label className="block text-sm font-medium">Account Number</label>
-                                   {" "}
             <input
               type="text"
               value={formData.accNo}
@@ -433,25 +619,19 @@ const AddPaymentModal = ({
               placeholder="Enter member's account number"
               disabled={isSaving}
             />
-                                     
             {memberError && (
               <p className="text-xs text-red-600 mt-1">{memberError}</p>
             )}
-                                     
             {isSearching && (
               <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
-                                               {" "}
                 <FiRefreshCw className="animate-spin w-3 h-3" /> Searching for
-                member...                            {" "}
+                member...
               </p>
             )}
-                               {" "}
           </div>
-                             {" "}
+
           <div>
-                                   {" "}
             <label className="block text-sm font-medium">Member Name</label>
-                                   {" "}
             <input
               type="text"
               value={formData.name}
@@ -463,15 +643,12 @@ const AddPaymentModal = ({
               }
               disabled={true}
             />
-                               {" "}
           </div>
-                                                 {" "}
+
           <div>
-                                   {" "}
             <label className="block text-sm font-medium">
               Name of Recipient
             </label>
-                                   {" "}
             <input
               type="text"
               value={formData.recipient}
@@ -482,13 +659,10 @@ const AddPaymentModal = ({
               placeholder="Enter recipient's name"
               disabled={isSaving}
             />
-                               {" "}
           </div>
-                               
+
           <div>
-                                   {" "}
-            <label className="block text-sm font-medium">Payment Method</label> 
-                                 {" "}
+            <label className="block text-sm font-medium">Payment Method</label>
             <select
               value={formData.paymentMethod}
               onChange={(e) =>
@@ -497,22 +671,16 @@ const AddPaymentModal = ({
               className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
               disabled={isSaving}
             >
-                                         {" "}
-              <option value="Cash Payment">Cash Payment</option>               
-                          <option value="GCash">GCash</option>                 
-                   {" "}
+              <option value="Cash Payment">Cash Payment</option>
+              <option value="GCash">GCash</option>
             </select>
-                               {" "}
           </div>
-                                                 {" "}
+
           <div className="grid grid-cols-2 gap-4">
-                                   {" "}
             <div>
-                                         {" "}
               <label className="block text-sm font-medium">
                 Date of Transaction
               </label>
-                                         {" "}
               <input
                 type="date"
                 value={formData.transactionDate}
@@ -522,15 +690,11 @@ const AddPaymentModal = ({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
                 disabled={isSaving}
               />
-                                     {" "}
             </div>
-                                   {" "}
             <div>
-                                         {" "}
               <label className="block text-sm font-medium">
                 Amount of Payment
               </label>
-                                         {" "}
               <input
                 type="number"
                 value={formData.amount}
@@ -544,19 +708,14 @@ const AddPaymentModal = ({
                 placeholder="Enter the payment value"
                 disabled={isSaving}
               />
-                                     {" "}
             </div>
-                               {" "}
           </div>
-                                                 {" "}
+
           <div className="border-t pt-4">
-                                   {" "}
             <label className="block text-sm font-medium mb-1">
               Proof of Payment (Optional)
             </label>
-                                   {" "}
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition cursor-pointer">
-                                         {" "}
               {imageFile ? (
                 <p className="text-sm text-green-600">
                   File selected: {imageFile.name}
@@ -566,7 +725,6 @@ const AddPaymentModal = ({
                   Upload an image or drag and drop
                 </p>
               )}
-                                         {" "}
               <input
                 type="file"
                 onChange={(e) =>
@@ -575,39 +733,29 @@ const AddPaymentModal = ({
                 className="opacity-0 absolute inset-0 cursor-pointer"
                 disabled={isSaving}
               />
-                                     {" "}
             </div>
-                               {" "}
           </div>
-                                             {" "}
         </div>
-                                       {" "}
+
         <div className="mt-6 pt-4 border-t flex justify-end gap-3">
-                             {" "}
           <button
             onClick={onClose}
             className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
             disabled={isSaving}
           >
-                                    Cancel                    {" "}
+            Cancel
           </button>
-                             {" "}
           <button
             onClick={handleSave}
             disabled={
-              isSaving || memberError !== "" || !formData.name || isSearching
+              isSaving || memberError !== "" || !formData.name || isSearching || !memberId
             }
             className="bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
           >
-                                   {" "}
-            {isSaving ? "Submitting..." : "Submit Payment"}                 
-             {" "}
+            {isSaving ? "Submitting..." : "Submit Payment"}
           </button>
-                         {" "}
         </div>
-                   {" "}
       </div>
-             {" "}
     </div>
   );
 };
@@ -644,10 +792,10 @@ const ExportModal = ({
     { key: "name", label: "Member Name" },
     { key: "amount", label: "Amount (P)" },
     { key: "paymentMethod", label: "Payment" },
-
     { key: "recipient", label: "Recipient" },
     { key: "transactionDate", label: "Date Paid" },
     { key: "proofURL", label: "Proof of Payment" },
+    { key: "userId", label: "User ID" }, // ADDED: User ID column option
   ];
 
   const handleToggleColumn = (key: string) => {
@@ -711,27 +859,30 @@ const ExportModal = ({
           case "proofURL":
             value = record.proofURL ? "Available" : "No Proof";
             break;
+          case "userId": // ADDED: User ID case
+            value = record.userId || "N/A";
+            break;
           default:
             value = "N/A";
         }
         row.push(value);
       });
       return row;
-    }); // PDF GENERATION
+    });
 
     const doc = new jsPDF();
-    // Title and Period Text
     doc.setFontSize(16);
     doc.text("Contribution Report", 14, 15);
     doc.setFontSize(10);
-    doc.text(`Period: ${monthYear}`, 14, 22); // @ts-ignore
-
+    doc.text(`Period: ${monthYear}`, 14, 22);
+    
+    // @ts-ignore
     (doc as any).autoTable({
       startY: 30,
       head: [headers],
       body: data,
       theme: "striped",
-      headStyles: { fillColor: [18, 86, 72] }, // Match your green theme
+      headStyles: { fillColor: [18, 86, 72] },
     });
 
     doc.save(`${fileName}.pdf`);
@@ -741,26 +892,21 @@ const ExportModal = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                  {/* ... (Your ExportModal JSX) ... */}
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
-                       {" "}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
         >
-                              <X size={20} />               {" "}
+          <X size={20} />
         </button>
-                       {" "}
+
         <h2 className="text-2xl font-bold mb-6 text-gray-800 border-b pb-2">
           Export Records
         </h2>
-                       {" "}
+
         <div className="space-y-6">
-                             {" "}
           <div>
-                                   {" "}
             <label className="block text-sm font-medium mb-1">File Name</label>
-                                   {" "}
             <input
               type="text"
               value={fileName}
@@ -768,20 +914,15 @@ const ExportModal = ({
               className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-[#125648] focus:border-[#125648]"
               disabled={isExporting}
             />
-                               {" "}
           </div>
-                                                 {" "}
+
           <div>
-                                   {" "}
             <h3 className="text-base font-semibold text-gray-700 mb-3">
               Select Columns to Include
             </h3>
-                                   {" "}
             <div className="grid grid-cols-2 gap-3 max-h-40 overflow-y-auto p-3 border rounded-lg bg-gray-50">
-                                         {" "}
               {ALL_COLUMNS.map((col) => (
                 <div key={col.key} className="flex items-center">
-                                                     {" "}
                   <input
                     type="checkbox"
                     id={`col-${col.key}`}
@@ -790,34 +931,26 @@ const ExportModal = ({
                     className="h-4 w-4 text-[#125648] border-gray-300 rounded focus:ring-[#125648]"
                     disabled={isExporting}
                   />
-                                                     {" "}
                   <label
                     htmlFor={`col-${col.key}`}
                     className="ml-2 text-sm text-gray-700 cursor-pointer"
                   >
-                                                            {col.label}         
-                                             {" "}
+                    {col.label}
                   </label>
-                                                 {" "}
                 </div>
               ))}
-                                     {" "}
             </div>
-                               {" "}
           </div>
-                         {" "}
         </div>
-                       {" "}
+
         <div className="mt-8 pt-4 border-t flex justify-end gap-3">
-                             {" "}
           <button
             onClick={onClose}
             className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
             disabled={isExporting}
           >
-                                    Cancel                    {" "}
+            Cancel
           </button>
-                             {" "}
           <button
             onClick={handleExportPDF}
             disabled={
@@ -825,35 +958,23 @@ const ExportModal = ({
             }
             className="flex items-center gap-2 bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
           >
-                                   {" "}
             {isExporting ? (
               <>
-                                                 
-                <FiRefreshCw className="animate-spin w-4 h-4" /> Exporting...  
-                                           
+                <FiRefreshCw className="animate-spin w-4 h-4" /> Exporting...
               </>
             ) : (
               <>
-                                                 
-                <FiDownload className="w-4 h-4" /> Export to PDF                
-                             
+                <FiDownload className="w-4 h-4" /> Export to PDF
               </>
             )}
-                               {" "}
           </button>
-                         {" "}
         </div>
-                   {" "}
       </div>
-             {" "}
     </div>
   );
 };
 
-// ----------------------------------------------------
 // --- MAIN CONTRIBUTION COMPONENT ---
-// ----------------------------------------------------
-
 export default function Contribution() {
   const [currentMonth, setCurrentMonth] = useState(new Date("2025-06-01"));
   const [records, setRecords] = useState<ContributionRecord[]>([]);
@@ -866,7 +987,21 @@ export default function Contribution() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false); // --- Functions to Handle Data ---
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<ContributionRecord | null>(null);
+
+  // Navigation hook
+  const navigate = useNavigate();
+
+  // Navigation handlers
+  const handleAdminClick = () => {
+    navigate('/EditModal');
+  };
+
+  const handleDashboardClick = () => {
+    navigate('/Dashboard');
+  };
 
   const fetchContributionData = async (month: Date) => {
     setIsLoading(true);
@@ -878,7 +1013,7 @@ export default function Contribution() {
     const endOfYear = Timestamp.fromDate(new Date(currentYear + 1, 0, 1));
 
     try {
-      const totalMembers = await fetchTotalMembers(); // 1. Query all records for the *Current Year* for Total Funds calculation
+      const totalMembers = await fetchTotalMembers();
 
       const yearQuery = query(
         collection(db, "contributions"),
@@ -889,7 +1024,7 @@ export default function Contribution() {
       const totalFundsOfYear = yearSnapshot.docs.reduce(
         (sum, doc) => sum + doc.data().amount,
         0
-      ); // 2. Query records for the *Selected Month* for the table and summary stats
+      );
 
       const monthQuery = query(
         collection(db, "contributions"),
@@ -897,20 +1032,21 @@ export default function Contribution() {
       );
       const monthQuerySnapshot = await getDocs(monthQuery);
 
-      const contributionList: ContributionRecord[] =
-        monthQuerySnapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            accNo: data.accNo,
-            name: data.name,
-            amount: data.amount,
-            paymentMethod: data.paymentMethod,
-            recipient: data.recipient,
-            transactionDate: data.transactionDate as Timestamp,
-            proofURL: data.proofURL,
-          };
-        }); // Tally Totals for the Current Month (counting unique members)
+      const contributionList: ContributionRecord[] = monthQuerySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId || "N/A", // ADDED: Include userId when fetching
+          accNo: data.accNo,
+          name: data.name,
+          amount: data.amount,
+          paymentMethod: data.paymentMethod,
+          recipient: data.recipient,
+          transactionDate: data.transactionDate as Timestamp,
+          proofURL: data.proofURL,
+          monthYear: data.monthYear,
+        };
+      });
 
       const paidMembers = new Set(contributionList.map((r) => r.accNo)).size;
       const unpaidMembers = Math.max(0, totalMembers - paidMembers);
@@ -929,12 +1065,10 @@ export default function Contribution() {
     }
   };
 
-  // 🛑 FIX: DITO NA TINAWAG ANG checkAndUpdateMemberStatus()
   useEffect(() => {
-    // 1. TAWAGIN ANG STATUS CHECK. Ito ang magti-trigger ng update at logs.
-    checkAndUpdateMemberStatus(); // 2. Tawagin ang data fetch (para ma-update ang table data)
+    checkAndUpdateMemberStatus();
     fetchContributionData(currentMonth);
-  }, [currentMonth]); // --- UI Handlers ---
+  }, [currentMonth]);
 
   const handleMonthChange = (direction: "prev" | "next") => {
     setCurrentMonth((prev) => {
@@ -944,262 +1078,269 @@ export default function Contribution() {
     });
   };
 
+  const handleEditClick = (record: ContributionRecord) => {
+    setSelectedRecord(record);
+    setShowEditModal(true);
+  };
+
+  const handleEditSave = () => {
+    fetchContributionData(currentMonth);
+    checkAndUpdateMemberStatus();
+  };
+
   const currentMonthDisplay = useMemo(
     () => formatMonthYear(currentMonth),
     [currentMonth]
-  ); // Sum of payments FOR THE CURRENT MONTH
+  );
+
   const totalFundsDisplay = records
     .reduce((sum, r) => sum + r.amount, 0)
     .toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }); // --- Rendering ---
+    });
+
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-                 {" "}
-      <div className="flex justify-between items-center mb-6">
-               {" "}
-        <h1 className="text-3xl font-extrabold text-gray-800">
-          Contribution Dashboard
-        </h1>
-             {" "}
-      </div>
-           {" "}
-      <div className="bg-white shadow-xl rounded-lg p-6">
-                        {/* Summary Boxes */}       {" "}
-        <div className="flex space-x-4 mb-6 border-b pb-6">
-                   {" "}
-          <StatBox
-            title={`Total Funds ${currentMonth.getFullYear()}`}
-            value={`P ${summary.totalFunds.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            isPrimary={true}
-            isLarge={true}
-          />
-                   {" "}
-          <StatBox
-            title="Monthly Dues"
-            value={`P ${summary.contributionAmount.toFixed(2)}`}
-            isPrimary={false}
-            isLarge={true}
-          />
-                 {" "}
+    <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* TOP HEADER - Contribution Header */}
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+        
+        {/* Contribution Title - Left Side */}
+        <div className="flex items-center space-x-4">
+          <h1 className="text-xl font-bold">Contribution</h1>
         </div>
-               {" "}
-        <div className="flex items-center space-x-12 mb-6">
-                     {" "}
-          <StatBox
-            title="Contribution this month"
-            value={`P ${totalFundsDisplay}`}
-            isPrimary={false}
-            isMinimal={true}
-          />
-                     {" "}
-          <StatBox
-            title="Total members"
-            value={summary.totalMembers.toString()}
-            isPrimary={false}
-            isMinimal={true}
-          />
-                     {" "}
-          <StatBox
-            title="Paid Members"
-            value={summary.paidMembers.toString()}
-            isPrimary={false}
-            isMinimal={true}
-          />
-                     {" "}
-          <StatBox
-            title="Unpaid Members"
-            value={summary.unpaidMembers.toString()}
-            isPrimary={false}
-            isRed={true}
-            isMinimal={true}
-          />
-                 {" "}
+
+        {/* Empty Center for Balance */}
+        <div className="flex-1"></div>
+
+        {/* Profile/User Icon on the Right */}
+        <div className="flex items-center space-x-3">
+          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+            <ShareIcon className="h-5 w-5" /> 
+          </button>
+
+          {/* ADMIN BUTTON: Navigation Handler */}
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+            onClick={handleAdminClick} 
+          >
+            <UserCircleIcon className="h-8 w-8 text-white" />
+            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+          </div>
         </div>
-                        {/* Controls and Export */}       {" "}
-        <div className="flex justify-between items-center pb-4 mb-4">
-                   {" "}
-          <div className="flex items-center space-x-2 border rounded-lg overflow-hidden shadow-sm">
-                       {" "}
-            <button
-              onClick={() => handleMonthChange("prev")}
-              className="p-3 bg-gray-50 hover:bg-gray-100 border-r"
-              aria-label="Previous Month"
-            >
-                            <FiChevronLeft className="w-5 h-5 text-gray-600" /> 
-                       {" "}
-            </button>
-                       {" "}
-            <div className="text-lg font-semibold w-40 text-center text-gray-800">
-              {currentMonthDisplay}
+      </header>
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 overflow-auto p-8">
+        <div className="bg-white shadow-xl rounded-lg p-6">
+          {/* Summary Boxes */}
+          <div className="flex space-x-4 mb-6 border-b pb-6">
+            <StatBox
+              title={`Total Funds ${currentMonth.getFullYear()}`}
+              value={`P ${summary.totalFunds.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              isPrimary={true}
+              isLarge={true}
+            />
+            <StatBox
+              title="Monthly Dues"
+              value={`P ${summary.contributionAmount.toFixed(2)}`}
+              isPrimary={false}
+              isLarge={true}
+            />
+          </div>
+
+          <div className="flex items-center space-x-12 mb-6">
+            <StatBox
+              title="Contribution this month"
+              value={`P ${totalFundsDisplay}`}
+              isPrimary={false}
+              isMinimal={true}
+            />
+            <StatBox
+              title="Total members"
+              value={summary.totalMembers.toString()}
+              isPrimary={false}
+              isMinimal={true}
+            />
+            <StatBox
+              title="Paid Members"
+              value={summary.paidMembers.toString()}
+              isPrimary={false}
+              isMinimal={true}
+            />
+            <StatBox
+              title="Unpaid Members"
+              value={summary.unpaidMembers.toString()}
+              isPrimary={false}
+              isRed={true}
+              isMinimal={true}
+            />
+          </div>
+
+          {/* Controls and Export */}
+          <div className="flex justify-between items-center pb-4 mb-4">
+            <div className="flex items-center space-x-2 border rounded-lg overflow-hidden shadow-sm">
+              <button
+                onClick={() => handleMonthChange("prev")}
+                className="p-3 bg-gray-50 hover:bg-gray-100 border-r"
+                aria-label="Previous Month"
+              >
+                <FiChevronLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="text-lg font-semibold w-40 text-center text-gray-800">
+                {currentMonthDisplay}
+              </div>
+              <button
+                onClick={() => handleMonthChange("next")}
+                className="p-3 bg-gray-50 hover:bg-gray-100 border-l"
+                aria-label="Next Month"
+              >
+                <FiChevronRight className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
-                       {" "}
-            <button
-              onClick={() => handleMonthChange("next")}
-              className="p-3 bg-gray-50 hover:bg-gray-100 border-l"
-              aria-label="Next Month"
-            >
-                            <FiChevronRight className="w-5 h-5 text-gray-600" />
-                         {" "}
-            </button>
-                     {" "}
+
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 shadow-sm"
+              >
+                <FiDownload className="w-4 h-4" /> Export
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 bg-[#125648] text-white px-4 py-2 text-sm font-medium rounded-lg shadow-md hover:bg-[#0d3d33]"
+              >
+                <FiPlus /> Add Payment
+              </button>
+            </div>
           </div>
-                   {" "}
-          <div className="flex items-center space-x-3">
-                       {" "}
-            <button
-              onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 shadow-sm"
-            >
-                            <FiDownload className="w-4 h-4" /> Export          
-               {" "}
-            </button>
-                       {" "}
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 bg-[#125648] text-white px-4 py-2 text-sm font-medium rounded-lg shadow-md hover:bg-[#0d3d33]"
-            >
-                            <FiPlus /> Add Payment            {" "}
-            </button>
-                     {" "}
-          </div>
-                 {" "}
-        </div>
-                {/* Contribution Table */}       {" "}
-        <div className="overflow-x-auto border rounded-lg shadow-sm">
-                   {" "}
-          <table className="min-w-full divide-y divide-gray-200">
-                       {" "}
-            <thead className="bg-gray-50">
-                           {" "}
-              <tr>
-                               {" "}
-                {[
-                  "Acc. No.",
-                  "Name",
-                  "P Amount",
-                  "Payment Method",
-                  "Recipient",
-                  "Transaction Date",
-                  "Proof of Payment",
-                ].map((header) => (
-                  <th
-                    key={header}
-                    className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
-                  >
-                                        {header}                 {" "}
-                  </th>
-                ))}
-                             {" "}
-              </tr>
-                         {" "}
-            </thead>
-                       {" "}
-            <tbody className="bg-white divide-y divide-gray-200">
-                           {" "}
-              {isLoading ? (
+
+          {/* Contribution Table */}
+          <div className="overflow-x-auto border rounded-lg shadow-sm">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
-                                     {" "}
-                  <td colSpan={7} className="text-center py-6 text-gray-500">
-                                           {" "}
-                    <FiRefreshCw className="animate-spin inline-block mr-2 w-4 h-4 text-[#125648]" />{" "}
-                    Loading records...                    {" "}
-                  </td>
-                                 {" "}
+                  {[
+                    "Acc. No.",
+                    "Name",
+                    "P Amount",
+                    "Payment Method",
+                    "Recipient",
+                    "Transaction Date",
+                    "Proof of Payment",
+                    "Actions",
+                  ].map((header) => (
+                    <th
+                      key={header}
+                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                    >
+                      {header}
+                    </th>
+                  ))}
                 </tr>
-              ) : records.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-6 text-gray-500">
-                    No records found for this month.
-                  </td>
-                </tr>
-              ) : (
-                records.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.accNo}
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="text-center py-6 text-gray-500">
+                      <FiRefreshCw className="animate-spin inline-block mr-2 w-4 h-4 text-[#125648]" />
+                      Loading records...
                     </td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
-                      {record.name}
-                    </td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700 font-medium">{`P ${record.amount.toFixed(2)}`}</td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
-                      {record.paymentMethod}
-                    </td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
-                      {record.recipient}
-                    </td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
-                                           {" "}
-                      {record.transactionDate
-                        .toDate()
-                        .toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                                         {" "}
-                    </td>
-                                       {" "}
-                    <td className="px-6 py-5 whitespace-nowrap text-sm">
-                                           {" "}
-                      {record.proofURL ? (
-                        <a
-                          href={record.proofURL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-500 hover:underline"
-                        >
-                                                    Image no.{" "}
-                          {record.id.substring(0, 4)}                     
-                           {" "}
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">-----</span>
-                      )}
-                                         {" "}
-                    </td>
-                                     {" "}
                   </tr>
-                ))
-              )}
-                         {" "}
-            </tbody>
-                     {" "}
-          </table>
-                 {" "}
+                ) : records.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="text-center py-6 text-gray-500">
+                      No records found for this month.
+                    </td>
+                  </tr>
+                ) : (
+                  records.map((record) => (
+                    <tr key={record.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {record.accNo}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
+                        {record.name}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700 font-medium">{`P ${record.amount.toFixed(2)}`}</td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
+                        {record.paymentMethod}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
+                        {record.recipient}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
+                        {record.transactionDate
+                          .toDate()
+                          .toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm">
+                        {record.proofURL ? (
+                          <a
+                            href={record.proofURL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:underline"
+                          >
+                            Image no. {record.id.substring(0, 4)}
+                          </a>
+                        ) : (
+                          <span className="text-gray-400">-----</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
+                        <button
+                          onClick={() => handleEditClick(record)}
+                          className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                          title="Edit payment"
+                        >
+                          <FiEdit className="w-3 h-3" />
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-             {" "}
-      </div>
-                  {/* Add Payment Modal */}
-           {" "}
-      <AddPaymentModal
-        show={showModal}
-        onClose={() => setShowModal(false)}
-        onSave={() => {
-          setShowModal(false);
-          // KASAMA ITO PARA MAG-REFRESH ANG STATUS PAGKATAPOS MAGBAYAD
-          checkAndUpdateMemberStatus();
-          fetchContributionData(currentMonth);
-        }}
-        monthYear={currentMonthDisplay}
-      />
-                  {/* Export to PDF Modal */}
-           {" "}
-      <ExportModal
-        show={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        records={records}
-        monthYear={currentMonthDisplay}
-      />
-         {" "}
+
+        {/* Add Payment Modal */}
+        <AddPaymentModal
+          show={showModal}
+          onClose={() => setShowModal(false)}
+          onSave={() => {
+            setShowModal(false);
+            checkAndUpdateMemberStatus();
+            fetchContributionData(currentMonth);
+          }}
+          monthYear={currentMonthDisplay}
+        />
+
+        {/* Edit Payment Modal */}
+        <EditPaymentModal
+          show={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedRecord(null);
+          }}
+          onSave={handleEditSave}
+          record={selectedRecord}
+        />
+
+        {/* Export to PDF Modal */}
+        <ExportModal
+          show={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          records={records}
+          monthYear={currentMonthDisplay}
+        />
+      </main>
     </div>
   );
 }

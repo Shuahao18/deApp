@@ -455,6 +455,28 @@ const AccReg: React.FC = () => {
     fetchMembers();
   }, []);
 
+  // Reset form completely when modal opens/closes
+  const resetFormAndState = () => {
+    setForm(defaultForm);
+    setIsEditing(false);
+    setCurrentMemberId(null);
+    setErrorMessage(null);
+    setShowPasswordInfo(false);
+  };
+
+  const handleOpenCreateModal = () => {
+    resetFormAndState();
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    // Small delay to ensure modal is fully closed before resetting
+    setTimeout(() => {
+      resetFormAndState();
+    }, 100);
+  };
+
   // filters
   const filteredMembers = members
     .filter((member) => {
@@ -644,8 +666,10 @@ const AccReg: React.FC = () => {
 
       alert(`Account created successfully! A verification email has been sent to ${form.email}. Role: ${form.role} Account No: ${newAccNo} 🎉`);
       setShowModal(false);
-      setForm(defaultForm);
-      setShowPasswordInfo(false);
+      // Reset form after successful creation
+      setTimeout(() => {
+        resetFormAndState();
+      }, 100);
       fetchMembers();
       setViewMode("active");
     } catch (err: any) {
@@ -664,10 +688,7 @@ const AccReg: React.FC = () => {
   };
 
   // JSX
-  // JSX
-  /* ---------------- Main AccReg Component JSX ---------------- */
-
-return (
+  return (
     <div className="">
       {/* Header and Search */}
       <div className="bg-teader h-20  flex justify-between items-center px-8">
@@ -702,12 +723,7 @@ return (
             <Download size={16} /> Export
           </button>
           <button
-            onClick={() => {
-              setForm(defaultForm);
-              setIsEditing(false);
-              setShowModal(true);
-              setErrorMessage(null);
-            }}
+            onClick={handleOpenCreateModal}
             className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-emerald-700 rounded-full hover:bg-emerald-800"
           >
             <Plus size={16} /> Create Acc.
@@ -855,22 +871,87 @@ return (
             <form onSubmit={isEditing ? handleUpdateAccount : handleCreateAccount}>
               {errorMessage && <p className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">{errorMessage}</p>}
               <div className="grid grid-cols-2 gap-4">
-                <FloatingInput id="surname" label="Surname" required value={form.surname} onChange={(v) => setForm({ ...form, surname: v })} />
-                <FloatingInput id="firstname" label="First Name" required value={form.firstname} onChange={(v) => setForm({ ...form, firstname: v })} />
-                <FloatingInput id="middlename" label="Middle Name" value={form.middlename} onChange={(v) => setForm({ ...form, middlename: v })} />
-                <FloatingInput id="dob" label="Date of Birth (YYYY-MM-DD)" value={form.dob} onChange={(v) => setForm({ ...form, dob: v })} />
-                <FloatingInput id="address" label="House Address" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
-                <FloatingInput id="contact" label="Contact No." value={form.contact} onChange={(v) => setForm({ ...form, contact: v })} />
-                <FloatingInput id="email" label="Email Address" required value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
-                <FloatingSelect id="civilStatus" label="Civil Status" required value={form.civilStatus} onChange={(v) => setForm({ ...form, civilStatus: v })} options={["Single", "Married", "Divorced", "Widowed"]} />
+                <FloatingInput 
+                  id="surname" 
+                  label="Surname" 
+                  required 
+                  value={form.surname} 
+                  onChange={(v) => setForm({ ...form, surname: v })} 
+                />
+                <FloatingInput 
+                  id="firstname" 
+                  label="First Name" 
+                  required 
+                  value={form.firstname} 
+                  onChange={(v) => setForm({ ...form, firstname: v })} 
+                />
+                <FloatingInput 
+                  id="middlename" 
+                  label="Middle Name" 
+                  value={form.middlename} 
+                  onChange={(v) => setForm({ ...form, middlename: v })} 
+                />
+                <FloatingInput 
+                  id="dob" 
+                  label="Date of Birth (YYYY-MM-DD)" 
+                  value={form.dob} 
+                  onChange={(v) => setForm({ ...form, dob: v })} 
+                />
+                <FloatingInput 
+                  id="address" 
+                  label="House Address" 
+                  value={form.address} 
+                  onChange={(v) => setForm({ ...form, address: v })} 
+                />
+                <FloatingInput 
+                  id="contact" 
+                  label="Contact No." 
+                  value={form.contact} 
+                  onChange={(v) => setForm({ ...form, contact: v })} 
+                />
                 
-                {/* SENIOR DEVELOPER MODIFICATION: 
-                  1. Make Role non-editable in Edit Mode by using FloatingInput (read-only) 
-                     or FloatingSelect (disabled) instead of FloatingSelect (editable).
-                     I'll use FloatingInput here for a consistent read-only look.
-                */}
+                {/* EMAIL FIELD - NOT EDITABLE IN EDIT MODE */}
                 {isEditing ? (
-                  <FloatingInput id="role" label="Role in HOA" required value={form.role} onChange={() => {}} type="text" className="pointer-events-none" />
+                  <FloatingInput 
+                    id="email" 
+                    label="Email Address" 
+                    required 
+                    value={form.email} 
+                    onChange={() => {}} 
+                    type="email" 
+                    className="pointer-events-none bg-gray-100"
+                  />
+                ) : (
+                  <FloatingInput 
+                    id="email" 
+                    label="Email Address" 
+                    required 
+                    value={form.email} 
+                    onChange={(v) => setForm({ ...form, email: v })} 
+                    type="email" 
+                  />
+                )}
+                
+                <FloatingSelect 
+                  id="civilStatus" 
+                  label="Civil Status" 
+                  required 
+                  value={form.civilStatus} 
+                  onChange={(v) => setForm({ ...form, civilStatus: v })} 
+                  options={["Single", "Married", "Divorced", "Widowed"]} 
+                />
+                
+                {/* ROLE FIELD - NOT EDITABLE IN EDIT MODE */}
+                {isEditing ? (
+                  <FloatingInput 
+                    id="role" 
+                    label="Role in HOA" 
+                    required 
+                    value={form.role} 
+                    onChange={() => {}} 
+                    type="text" 
+                    className="pointer-events-none bg-gray-100"
+                  />
                 ) : (
                   <FloatingSelect 
                     id="role" 
@@ -878,16 +959,12 @@ return (
                     required 
                     value={form.role} 
                     onChange={(v) => setForm({ ...form, role: v })} 
-                    options={["Member","Admin"]} 
+                    options={["Member"]} 
                   />
                 )}
                 
                 {isEditing && (
-                  /* SENIOR DEVELOPER MODIFICATION: 
-                    2. Status options logic:
-                       - If status is 'New', options are ['New', 'Active'].
-                       - If status is 'Active', options are only ['Active'] (preventing demotion to 'New').
-                  */
+                  /* STATUS FIELD - EDITABLE IN EDIT MODE */
                   <FloatingSelect 
                     id="status" 
                     label="Status" 
@@ -900,8 +977,24 @@ return (
                 
                 {!isEditing && (
                   <>
-                    <FloatingInput id="password" label="Password" required value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password" onFocus={() => setShowPasswordInfo(true)} onBlur={() => setShowPasswordInfo(false)} />
-                    <FloatingInput id="confirm" label="Confirm Password" required value={form.confirm} onChange={(v) => setForm({ ...form, confirm: v })} type="password" />
+                    <FloatingInput 
+                      id="password" 
+                      label="Password" 
+                      required 
+                      value={form.password} 
+                      onChange={(v) => setForm({ ...form, password: v })} 
+                      type="password" 
+                      onFocus={() => setShowPasswordInfo(true)} 
+                      onBlur={() => setShowPasswordInfo(false)} 
+                    />
+                    <FloatingInput 
+                      id="confirm" 
+                      label="Confirm Password" 
+                      required 
+                      value={form.confirm} 
+                      onChange={(v) => setForm({ ...form, confirm: v })} 
+                      type="password" 
+                    />
                   </>
                 )}
               </div>
@@ -911,7 +1004,11 @@ return (
               )}
 
               <div className="flex justify-end gap-3 mt-8">
-                <button type="button" className="px-4 py-2 rounded-md text-sm hover:bg-gray-200" onClick={() => setShowModal(false)}>
+                <button 
+                  type="button" 
+                  className="px-4 py-2 rounded-md text-sm hover:bg-gray-200" 
+                  onClick={handleCloseModal}
+                >
                   Cancel
                 </button>
                 <button type="submit" className="px-4 py-2 rounded-md text-sm bg-emerald-700 text-white hover:bg-emerald-800">

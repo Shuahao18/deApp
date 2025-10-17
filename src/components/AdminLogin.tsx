@@ -3,7 +3,7 @@ import { signInWithEmailAndPassword, signOut, sendPasswordResetEmail, confirmPas
 import { auth, db } from "../Firebase"; // Assuming these are correctly set up externally
 import { useNavigate } from "react-router-dom"; // Assuming this is correctly set up externally
 import { FiUser, FiLock, FiEye, FiEyeOff, FiMail, FiCheckCircle, FiXCircle } from "react-icons/fi"; 
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 // The overall application structure should use the Inter font (default Tailwind)
 
@@ -28,6 +28,9 @@ const AdminLogin: React.FC = () => {
   const PrimaryGreen = "#0C5D47";
   const DarkerGreen = "#084C40";
   const HighlightYellow = "#FFC43A";
+
+  // Allowed roles for login
+  const ALLOWED_ROLES = ["President", "Vice President", "Treasurer", "Secretary"];
 
   // --- Utility Functions ---
 
@@ -86,16 +89,42 @@ const AdminLogin: React.FC = () => {
       const userCred = await signInWithEmailAndPassword(auth, email, password);
       const uid = userCred.user.uid;
 
-      const docRef = doc(db, "admin", uid);
-      const docSnap = await getDoc(docRef);
+      // Check if user is Admin in admin collection
+      const adminDocRef = doc(db, "admin", uid);
+      const adminDocSnap = await getDoc(adminDocRef);
 
-      if (!docSnap.exists() || docSnap.data().role !== "Admin") {
-        await signOut(auth);
-        throw new Error("Access denied. Only Admins can log in here.");
+      if (adminDocSnap.exists() && adminDocSnap.data().role === "Admin") {
+        console.log("✅ Welcome Admin:", uid);
+        navigate("/dashboard");
+        return;
       }
 
-      console.log("✅ Welcome Admin:", uid);
-      navigate("/dashboard");
+      // Check if user is an official in elected_officials collection
+      const officialsQuery = query(
+        collection(db, "elected_officials"),
+        where("authUid", "==", uid)
+      );
+      const officialsSnapshot = await getDocs(officialsQuery);
+
+      if (!officialsSnapshot.empty) {
+        const officialData = officialsSnapshot.docs[0].data();
+        const userRole = officialData.position;
+        
+        // Check if the role is allowed
+        if (ALLOWED_ROLES.includes(userRole)) {
+          console.log(`✅ Welcome ${userRole}:`, uid);
+          navigate("/dashboard");
+          return;
+        } else {
+          await signOut(auth);
+          throw new Error(`Access denied. ${userRole} role cannot access this system.`);
+        }
+      }
+
+      // If user is not found in either collection
+      await signOut(auth);
+      throw new Error("Access denied. No valid admin or official account found.");
+
     } catch (err: any) {
       const message = err.message.includes("Firebase:")
         ? "Invalid credentials or user access denied."
@@ -385,7 +414,7 @@ const AdminLogin: React.FC = () => {
           <div className="flex justify-between items-center mb-6">
             <div className="text-white text-lg font-semibold">HOA MS</div>
             <img
-              src="./assets/Work.png"
+              src="../assets/Work.png"
               alt="HOA Seal"
               className="w-16 h-16 rounded-full border-2 border-white shadow-lg"
             />

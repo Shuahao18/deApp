@@ -141,15 +141,28 @@ function FinancialOverview({
     );
 }
 
-function InfoCard({ title, children, footer, footerContent }: { title: string; children: React.ReactNode; footer?: string; footerContent?: React.ReactNode }) {
+// ⭐️ UPDATED: Nagdagdag ng 'onViewMoreClick' prop
+function InfoCard({ title, children, footer, footerContent, onViewMoreClick }: { 
+    title: string; 
+    children: React.ReactNode; 
+    footer?: string; 
+    footerContent?: React.ReactNode;
+    onViewMoreClick?: () => void; // New prop
+}) {
     const isViewMore = footer === "View More";
     
     let actualFooterContent;
     if (footerContent) {
         actualFooterContent = footerContent; 
     } else if (isViewMore) {
+        // ⭐️ UPDATED: Inilipat ang onClick handler dito
         actualFooterContent = (
-            <button className="text-sm font-semibold text-[#007963] hover:text-[#005a4a]">View More</button>
+            <button 
+                className="text-sm font-semibold text-[#007963] hover:text-[#005a4a]"
+                onClick={onViewMoreClick} // Use the passed handler
+            >
+                View More
+            </button>
         );
     } else {
         actualFooterContent = (
@@ -170,7 +183,8 @@ function InfoCard({ title, children, footer, footerContent }: { title: string; c
     );
 }
 
-function FullyPaidMembersCard() {
+// ⭐️ UPDATED: Nagdagdag ng 'onViewMoreClick' prop
+function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void }) {
     const today = new Date();
     const currentMonthLabel = today.toLocaleString("default", { month: "long" });
     const currentYear = today.getFullYear().toString();
@@ -239,7 +253,13 @@ function FullyPaidMembersCard() {
                     ))}
                 </select>
             </div>
-            <button className="text-[#007963] hover:text-[#005a4a]">View More</button> 
+            {/* ⭐️ UPDATED: Inilipat ang onClick handler dito */}
+            <button 
+                className="text-[#007963] hover:text-[#005a4a]"
+                onClick={onViewMoreClick} // Use the passed handler
+            >
+                View More
+            </button> 
         </div>
     );
 
@@ -266,7 +286,20 @@ function FullyPaidMembersCard() {
 // --- MAIN DASHBOARD COMPONENT (CORE CONTENT) ---
 // -------------------------------------------------------------------
 
-function Dashboard({ adminUsername }: { adminUsername: string }) {
+// ⭐️ UPDATED: Nagdagdag ng props para sa navigation
+interface DashboardProps {
+    adminUsername: string;
+    onViewComplaintsClick: () => void;
+    onViewContributionsClick: () => void;
+    onViewEventsClick: () => void;
+}
+
+function Dashboard({ 
+    adminUsername, 
+    onViewComplaintsClick, 
+    onViewContributionsClick, 
+    onViewEventsClick
+}: DashboardProps) {
     const today = new Date();
     const currentYear = today.getFullYear(); 
     const [selectedYear, setSelectedYear] = useState(currentYear); 
@@ -374,7 +407,7 @@ function Dashboard({ adminUsername }: { adminUsername: string }) {
             setCurrentMembersCount(currentMembersPool.length);
             setRawTotalMembers(0); 
         } catch (error) {
-            console.error("CRITICAL ERROR FETCHING ANALYTICS:", error);
+            console.log("CRITICAL ERROR FETCHING ANALYTICS:", error);
             setRawTotalMembers(0); setCurrentMembersCount(0); setActiveMembers(0); setInactiveMembers(0); setNewMembers(0);
         }
     }, []);
@@ -522,7 +555,11 @@ function Dashboard({ adminUsername }: { adminUsername: string }) {
                              </div>
                         </InfoCard>
 
-                        <InfoCard title="Complaints" footer="View More">
+                        <InfoCard 
+                            title="Complaints" 
+                            footer="View More"
+                            onViewMoreClick={onViewComplaintsClick} // ⭐️ NAVIGATION: Complaints
+                        >
                             <div className="flex justify-around items-center h-40">
                                 <div className="text-center">
                                     <div className="text-3xl font-bold text-gray-800 mb-1">{newComplaints}</div>
@@ -541,7 +578,7 @@ function Dashboard({ adminUsername }: { adminUsername: string }) {
                             </div>
                         </InfoCard>
 
-                        <FullyPaidMembersCard /> 
+                        <FullyPaidMembersCard onViewMoreClick={onViewContributionsClick} /> {/* ⭐️ NAVIGATION: Contributions */}
                     </div>
 
                 </div>
@@ -569,7 +606,6 @@ function Dashboard({ adminUsername }: { adminUsername: string }) {
                                 const day = eventDate.getDate();
                                 const start = event.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                                 
-
                                 return (
                                     <div
                                         key={index}
@@ -603,7 +639,10 @@ function Dashboard({ adminUsername }: { adminUsername: string }) {
                     
                     {/* View Events Button */}
                     <div className="p-4 border-t border-gray-200 bg-white text-center">
-                        <button className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]">
+                        <button 
+                            className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]"
+                            onClick={onViewEventsClick} // ⭐️ NAVIGATION: CalendarEvents
+                        >
                             View Events
                         </button>
                     </div>
@@ -622,14 +661,29 @@ export default function DashboardContainer() {
     const headerBgColor = 'bg-[#1e4643]'; 
     const adminUsername = "Admin"; 
     
-    // ⭐️ ITO ANG NAGPAPAGAWA NG NAVIGATION: Tiyakin na naka-import ang useNavigate
+    // Initialize useNavigate
     const navigate = useNavigate(); 
     
-    // Function na tatawagin kapag na-click ang Admin button
+    // --- Navigation Handlers ---
     const handleAdminClick = () => {
-        // Ito ang magre-redirect sa '/EditModal' page (assuming ang path mo ay /EditModal)
         navigate('/EditModal'); 
     };
+    
+    // ⭐️ NEW HANDLER: Complaints page
+    const handleViewComplaintsClick = () => {
+        navigate('/Complaints'); 
+    };
+
+    // ⭐️ NEW HANDLER: Contributions/Payments page
+    const handleViewContributionsClick = () => {
+        navigate('/Contribution'); // Assuming your contributions/payments page path is '/Contributions'
+    };
+
+    // ⭐️ NEW HANDLER: CalendarEvents page
+    const handleViewEventsClick = () => {
+        navigate('/CalendarEvent'); 
+    };
+    // ---------------------------
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
@@ -661,7 +715,12 @@ export default function DashboardContainer() {
 
             {/* MAIN CONTENT AREA */}
             <main className="flex-1 overflow-auto">
-                <Dashboard adminUsername={adminUsername} /> 
+                <Dashboard 
+                    adminUsername={adminUsername} 
+                    onViewComplaintsClick={handleViewComplaintsClick} 
+                    onViewContributionsClick={handleViewContributionsClick}
+                    onViewEventsClick={handleViewEventsClick}
+                /> 
             </main>
         </div>
     );

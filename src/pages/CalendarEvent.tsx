@@ -3,8 +3,10 @@ import { Calendar } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import { dateFnsLocalizer } from "react-big-calendar";
-import { collection, addDoc, getDocs } from "firebase/firestore";
+import { collection, addDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "../Firebase";
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 
 const locales = {
   "en-US": require("date-fns/locale/en-US"),
@@ -18,13 +20,14 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// Update Interface: 'end' is back and required by react-big-calendar
+// Update Interface: Add createdAt as optional
 interface EventType {
   id?: string;
   title: string;
   start: Date;
   end: Date;
-  description?: string; 
+  description?: string;
+  createdAt?: Date; // Added createdAt field
 }
 
 export default function CalendarEvent() {
@@ -35,8 +38,20 @@ export default function CalendarEvent() {
     title: string;
     start: string;
     description: string; 
-  }>({ title: "", start: "", description: "" }); 
+  }>({ title: "", start: "", description: "" });
   const [showModal, setShowModal] = useState(false);
+
+  // Navigation hook
+  const navigate = useNavigate();
+
+  // Navigation handlers
+  const handleAdminClick = () => {
+    navigate('/EditModal');
+  };
+
+  const handleDashboardClick = () => {
+    navigate('/Dashboard');
+  };
 
   useEffect(() => {
     async function fetchEvents() {
@@ -61,12 +76,18 @@ export default function CalendarEvent() {
             endDate = new Date(startDate.getTime() + 60000); // 1 minute later
           }
 
+          // Handle createdAt field
+          let createdAt = data.createdAt && typeof data.createdAt.toDate === 'function' 
+            ? data.createdAt.toDate() 
+            : new Date(); // Fallback to current date if not available
+
           return {
             id: doc.id,
             title: data.title,
             start: startDate,
             end: endDate,
             description: data.description || "",
+            createdAt: createdAt, // Add createdAt to the event object
           };
         }) as EventType[];
         setEvents(eventsFromDB);
@@ -103,15 +124,22 @@ export default function CalendarEvent() {
     };
 
     try {
-      // Include 'end' date and 'description' in Firestore
+      // Include 'end' date, 'description', and 'createdAt' in Firestore
       const docRef = await addDoc(collection(db, "events"), {
         title: eventToAdd.title,
         start: startDate,
         end: endDate, 
         description: eventToAdd.description,
+        createdAt: serverTimestamp(), // Add server timestamp
       });
 
-      setEvents((prev) => [...prev, { ...eventToAdd, id: docRef.id }]);
+      // For the local state, we can use current date since serverTimestamp will be set on server
+      setEvents((prev) => [...prev, { 
+        ...eventToAdd, 
+        id: docRef.id,
+        createdAt: new Date() // Local timestamp until server syncs
+      }]);
+      
       // Reset newEvent state
       setNewEvent({ title: "", start: "", description: "" });
       setShowModal(false);
@@ -122,21 +150,39 @@ export default function CalendarEvent() {
   };
 
   return (
-    <div>
-      <div className="mb-6">
-        <div className="flex justify-between items-center h-20 bg-teader p-4 shadow">
-          <h2 className="text-4xl font-poppins font-bold text-white">
-            Calendar Events
-          </h2>
-          <button className="w-10 h-10 bg-white text-bgColor rounded-full flex items-center justify-center font-bold shadow hover:bg-gray-200">
-            P
-          </button>
+    <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* TOP HEADER - Calendar Events Header */}
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+        
+        {/* Calendar Events Title - Left Side */}
+        <div className="flex items-center space-x-4">
+          <h1 className="text-xl font-bold">Calendar Events</h1>
         </div>
-      </div>
 
-      <div className="p-6">
+        {/* Empty Center for Balance */}
+        <div className="flex-1"></div>
+
+        {/* Profile/User Icon on the Right */}
+        <div className="flex items-center space-x-3">
+          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+            <ShareIcon className="h-5 w-5" /> 
+          </button>
+
+          {/* ADMIN BUTTON: Navigation Handler */}
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+            onClick={handleAdminClick} 
+          >
+            <UserCircleIcon className="h-8 w-8 text-white" />
+            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 overflow-auto p-6">
         <div className="space-y-6">
-          {/* Header */}
+          {/* Header Stats and Add Button */}
           <div className="flex justify-between items-center">
             <div className="text-center text-gray-700 border border-gray-700 px-4 py-2 rounded">
               Total Events:
@@ -144,7 +190,7 @@ export default function CalendarEvent() {
             </div>
             <button
               onClick={() => setShowModal(true)}
-              className="bg-object text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
             >
               + Add Event
             </button>
@@ -171,10 +217,10 @@ export default function CalendarEvent() {
                     >
                       {/* Date Box */}
                       <div className="w-20 h-24 rounded-md border border-gray-400 overflow-hidden shadow-md">
-                        <div className="h-1/2 bg-bgColor text-white flex items-center justify-center text-sm font-bold uppercase">
+                        <div className="h-1/2 bg-[#1e4643] text-white flex items-center justify-center text-sm font-bold uppercase">
                           {month}
                         </div>
-                        <div className="h-1/2 bg-white text-bgColor flex items-center justify-center text-2xl font-bold">
+                        <div className="h-1/2 bg-white text-gray-800 flex items-center justify-center text-2xl font-bold">
                           {day}
                         </div>
                       </div>
@@ -207,6 +253,17 @@ export default function CalendarEvent() {
                             minute: "2-digit",
                           })}
                         </div>
+
+                        {/* Display created date if available */}
+                        {event.createdAt && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Created: {event.createdAt.toLocaleDateString()} at{' '}
+                            {event.createdAt.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        )}
                       </div> 
                     </div> 
                     // END of Event Item
@@ -227,7 +284,7 @@ export default function CalendarEvent() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Modal */}
       {showModal && (
@@ -277,7 +334,7 @@ export default function CalendarEvent() {
               <div className="flex justify-end">
                 <button
                   onClick={handleAddEvent}
-                  className="bg-bgColor text-white px-4 py-2 rounded-md hover:bg-green-700"
+                  className="bg-[#007963] text-white px-4 py-2 rounded-md hover:bg-[#005a4a]"
                 >
                   Add Event
                 </button>
