@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import * as ReactDOM from "react-dom/client";
 import Dashboard from "./pages/Dashboard";
 import Contribution from "./pages/Contribution";
-import { createHashRouter, RouterProvider, Navigate } from "react-router-dom";
+import { createHashRouter, RouterProvider, Navigate, useNavigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import ErrorHandler from "./pages/Diva";
 import CalendarEvent from "./pages/CalendarEvent";
@@ -15,23 +15,53 @@ import Election from "./pages/Election";
 import MemAssoc from "./pages/Members/MemAssoc";
 import AccReg from "./pages/Members/AccReg";
 import Posting from "./pages/Posting";
-import "./App.css"; // make sure this is in your main file
+import "./App.css";
 import OffHoa from "./pages/Members/OffHoa";
 import EditModal from "./pages/EditModal"
+
+// Create a Dashboard Wrapper to handle navigation
+function DashboardWrapper() {
+  const navigate = useNavigate();
+
+  const handleViewComplaints = () => {
+    navigate('/complaints');
+  };
+
+  const handleViewContributions = () => {
+    navigate('/accounting/contribution');
+  };
+
+  const handleViewEvents = () => {
+    navigate('/calendarEvent');
+  };
+
+  return (
+    <Dashboard
+      adminUsername="HOA Administrator"
+      onViewComplaintsClick={handleViewComplaints}
+      onViewContributionsClick={handleViewContributions}
+      onViewEventsClick={handleViewEvents}
+    />
+  );
+}
+
 const router = createHashRouter([
   {
     path: "/",
-    element: <AdminLogin />, // Show login first
+    element: <AdminLogin />,
   },
   {
     path: "/",
-    element: <ProtectedRoute />, // Protect below routes
+    element: <ProtectedRoute />,
     children: [
       {
         element: <Layout />,
         errorElement: <ErrorHandler />,
         children: [
-          { path: "dashboard", element: <Dashboard /> },
+          { 
+            path: "dashboard", 
+            element: <DashboardWrapper /> // Use the wrapper instead
+          },
           { path: "contribution", element: <Contribution /> },
           { path: "calendarEvent", element: <CalendarEvent /> },
           { path: "members/expenses", element: <Expenses /> },
@@ -40,13 +70,13 @@ const router = createHashRouter([
           { path: "editModal", element: <EditModal /> },
           { path: "posting", element: <Posting /> },
           { path: "officials", element: <OffHoa /> },
-          {path: "accounting/contribution", element: <Contribution /> },
-          {path: "accounting/expenses", element: <Expenses /> },
+          { path: "accounting/contribution", element: <Contribution /> },
+          { path: "accounting/expenses", element: <Expenses /> },
           { path: "members/memAssoc", element: <MemAssoc /> },
           { path: "accReg", element: <AccReg /> },
           { path: "election", element: <Election /> },
-          { path: "", element: <Navigate to="dashboard" replace /> }, // Empty path redirects to dashboard
-          { path: "*", element: <Navigate to="dashboard" replace /> }, // 404 fallback
+          { path: "", element: <Navigate to="dashboard" replace /> },
+          { path: "*", element: <Navigate to="dashboard" replace /> },
         ],
       },
     ],

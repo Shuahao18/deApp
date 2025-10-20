@@ -12,6 +12,7 @@ const firebaseConfig = {
   storageBucket: "hoa-appp.firebasestorage.app",
   messagingSenderId: "55802883937",
   appId: "1:55802883937:web:ce7e8a87acaee625275f20",
+  measurementId: "G-Z3FRH0Y74H"
 };
 
 const app = initializeApp(firebaseConfig);

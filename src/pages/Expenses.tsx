@@ -734,7 +734,7 @@ export default function Expenses() {
         
         {/* Expenses Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-bold">Expenses</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Expenses</h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -796,10 +796,10 @@ export default function Expenses() {
           {/* FIXED TABLE STRUCTURE */}
           <div className="overflow-x-auto border rounded-lg shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50"> 
+              <thead className="bg-object"> 
                 <tr>
                   {['Purpose', 'Amount', 'Date', 'Receipt', 'Actions'].map((header) => (
-                    <th key={header} className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th key={header} className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">
                       {header}
                     </th>
                   ))}

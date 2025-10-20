@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Search, Download, Pencil, Trash, Plus, RotateCcw } from "lucide-react";
+import { Search, Download, Pencil, Trash, Plus, RotateCcw, UserCircle, Share } from "lucide-react";
 import { auth, db } from "../../Firebase";
-import {collection, getDocs, setDoc, doc, updateDoc, query, orderBy,
-} from "firebase/firestore";
+import { collection, getDocs, setDoc, doc, updateDoc, query, orderBy } from "firebase/firestore";
 import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import { getFunctions, httpsCallable } from "firebase/functions";
-
+import { useNavigate } from 'react-router-dom';
 
 interface BaseFieldProps {
   id: string;
@@ -150,7 +149,6 @@ const COLUMN_KEYS = [
   { label: "Email Address", key: "email" },
   { label: "Civil Status", key: "civilStatus" },
   { label: "Role in HOA", key: "role" },
-  // password intentionally omitted from default export list but you can add if needed
 ];
 
 const defaultForm: NewMemberForm = {
@@ -221,7 +219,7 @@ const ExportAccountsModal: React.FC<{
 
   useEffect(() => {
     setFileName(initialFileName);
-  }, [show]); // reset when opening
+  }, [show]);
 
   const handleToggleColumn = (key: string) => {
     setSelectedColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -243,7 +241,6 @@ const ExportAccountsModal: React.FC<{
     }
     setIsExporting(true);
 
-    // Apply plugin safely (fix for some bundlers/environments)
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const plugin = require("jspdf-autotable");
@@ -251,8 +248,7 @@ const ExportAccountsModal: React.FC<{
         plugin.applyPlugin(jsPDF);
       }
     } catch (e) {
-      // If require fails, it's usually OK because import 'jspdf-autotable' was done at top.
-      console.warn("Could not apply jspdf-autotable plugin via require (falling back to imported plugin):", e);
+      console.warn("Could not apply jspdf-autotable plugin via require:", e);
     }
 
     if (data.length === 0) {
@@ -261,19 +257,16 @@ const ExportAccountsModal: React.FC<{
       return;
     }
 
-    // Prepare columns and headers
     const columns = COLUMN_KEYS.filter((col) => selectedColumns.includes(col.key));
     const headers = columns.map((c) => c.label);
     headers.unshift("No.");
 
-    // Prepare body rows: array of arrays (strings)
     const body = data.map((m, idx) => {
       const row: string[] = [];
       row.push(String(idx + 1));
       columns.forEach((col) => {
         let val = (m as any)[col.key] ?? "";
         if (col.key === "dob") {
-          // normalize date display if string or Date-like value
           if (!val) val = "";
           else {
             try {
@@ -297,16 +290,13 @@ const ExportAccountsModal: React.FC<{
 
     const doc = new jsPDF("landscape");
 
-    // Title
     const title = `Account Registry - ${viewMode === "active" ? "Active Accounts" : "Deleted Accounts"}`;
     doc.setFontSize(14);
     doc.text(title, 14, 14);
 
-    // Optional metadata line
     doc.setFontSize(10);
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 20);
 
-    // AutoTable
     // @ts-ignore
     (doc as any).autoTable({
       head: [headers],
@@ -316,7 +306,6 @@ const ExportAccountsModal: React.FC<{
       headStyles: { fillColor: [30, 64, 52] },
       styles: { fontSize: 8 },
       didDrawPage: function (dataPage: any) {
-        // Footer page number
         const pageCount = (doc.internal as any).getNumberOfPages();
         doc.setFontSize(8);
         const pageStr = `Page ${dataPage.pageNumber} of ${pageCount}`;
@@ -418,9 +407,18 @@ const AccReg: React.FC = () => {
 
   const [isEditing, setIsEditing] = useState(false);
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
-  // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
   const membersPerPage = 10;
+
+  const navigate = useNavigate();
+
+  const handleAdminClick = () => {
+    navigate('/EditModal');
+  };
+
+  const handleDashboardClick = () => {
+    navigate('/Dashboard');
+  };
 
   const fetchMembers = async () => {
     try {
@@ -455,7 +453,6 @@ const AccReg: React.FC = () => {
     fetchMembers();
   }, []);
 
-  // Reset form completely when modal opens/closes
   const resetFormAndState = () => {
     setForm(defaultForm);
     setIsEditing(false);
@@ -471,13 +468,11 @@ const AccReg: React.FC = () => {
 
   const handleCloseModal = () => {
     setShowModal(false);
-    // Small delay to ensure modal is fully closed before resetting
     setTimeout(() => {
       resetFormAndState();
     }, 100);
   };
 
-  // filters
   const filteredMembers = members
     .filter((member) => {
       const targetStatus = viewMode === "active" ? "Deleted" : "";
@@ -497,7 +492,6 @@ const AccReg: React.FC = () => {
   const startIndex = (currentPage - 1) * membersPerPage;
   const currentMembers = filteredMembers.slice(startIndex, startIndex + membersPerPage);
 
-  // soft delete
   const handleDeleteMember = async (memberId: string, memberName: string) => {
     if (
       !window.confirm(
@@ -584,18 +578,11 @@ const AccReg: React.FC = () => {
 
       const accNo = members.find((m) => m.id === currentMemberId)?.accNo;
 
-      // Note: setDoc with { merge: true } creates the document if it doesn't exist 
-      // or updates it if it does. This handles role promotion/demotion.
       if (form.role === "Admin") {
         await setDoc(doc(db, "admin", currentMemberId), { ...memberData, accNo }, { merge: true });
       } else if (form.role === "Officer") {
         await setDoc(doc(db, "elected_officials", currentMemberId), { ...memberData, accNo }, { merge: true });
       }
-
-      // If the role changed from Admin/Officer to Member, you might also want to delete 
-      // the document from the 'admin' or 'elected_officials' collection to clean up.
-      // However, to keep it simple and focus on the update error, we'll omit deletion here.
-      // If you implement this, ensure your Firebase Rules allow the delete operation.
 
       alert(`Account for ${form.firstname} ${form.surname} updated successfully!`);
       setShowModal(false);
@@ -605,7 +592,6 @@ const AccReg: React.FC = () => {
       fetchMembers();
     } catch (err: any) {
       console.error("Error updating member:", err);
-      // This is the line (AccReg.tsx:575 in the original context) that throws the FirebaseError: Missing or insufficient permissions.
       setErrorMessage(err.message || "Failed to update account. Check console and Security Rules.");
     }
   };
@@ -633,14 +619,11 @@ const AccReg: React.FC = () => {
     try {
       const newAccNo = await getNextAccNo();
 
-      // Create user
       const userCred = await createUserWithEmailAndPassword(auth, form.email, form.password);
-      const user = userCred.user; // Get the User object
+      const user = userCred.user;
       const uid = user.uid;
 
-      // ⭐ ADDED: Send Email Verification to the newly created user
-      await sendEmailVerification(user); // <-- USE THIS LINE
-      // NOTE: You must configure the email template in your Firebase Console.
+      await sendEmailVerification(user);
 
       const memberData = {
         surname: form.surname,
@@ -666,7 +649,6 @@ const AccReg: React.FC = () => {
 
       alert(`Account created successfully! A verification email has been sent to ${form.email}. Role: ${form.role} Account No: ${newAccNo} 🎉`);
       setShowModal(false);
-      // Reset form after successful creation
       setTimeout(() => {
         resetFormAndState();
       }, 100);
@@ -687,11 +669,38 @@ const AccReg: React.FC = () => {
     }
   };
 
-  // JSX
   return (
     <div className="">
+      {/* TOP HEADER - Account Registry Header */}
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+        
+        {/* Account Registry Title - Left Side */}
+        <div className="flex items-center space-x-4">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Account Registry</h1>
+        </div>
+
+        {/* Empty Center for Balance */}
+        <div className="flex-1"></div>
+
+        {/* Profile/User Icon on the Right */}
+        <div className="flex items-center space-x-3">
+          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+            <Share size={20} /> 
+          </button>
+
+          {/* ADMIN BUTTON: Navigation Handler */}
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+            onClick={handleAdminClick} 
+          >
+            <UserCircle size={32} />
+            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+          </div>
+        </div>
+      </header>
+
       {/* Header and Search */}
-      <div className="bg-teader h-20  flex justify-between items-center px-8">
+      <div className="bg-teader h-20 flex justify-between items-center px-8">
         <h1 className="text-3xl font-bold text-white">
           Account Registry ({viewMode === "active" ? "Active Accounts" : "Deleted Accounts"})
         </h1>
@@ -758,10 +767,10 @@ const AccReg: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="px-8">
+      <div className="px-8 ">
         <div id="members-table-container" className="overflow-x-auto bg-white rounded-lg shadow-md">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-object text-white">
+            <thead className="bg-[#383737] text-white">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">No.</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Acc. No.</th>
@@ -910,7 +919,6 @@ const AccReg: React.FC = () => {
                   onChange={(v) => setForm({ ...form, contact: v })} 
                 />
                 
-                {/* EMAIL FIELD - NOT EDITABLE IN EDIT MODE */}
                 {isEditing ? (
                   <FloatingInput 
                     id="email" 
@@ -941,7 +949,6 @@ const AccReg: React.FC = () => {
                   options={["Single", "Married", "Divorced", "Widowed"]} 
                 />
                 
-                {/* ROLE FIELD - NOT EDITABLE IN EDIT MODE */}
                 {isEditing ? (
                   <FloatingInput 
                     id="role" 
@@ -964,7 +971,6 @@ const AccReg: React.FC = () => {
                 )}
                 
                 {isEditing && (
-                  /* STATUS FIELD - EDITABLE IN EDIT MODE */
                   <FloatingSelect 
                     id="status" 
                     label="Status" 
@@ -1025,4 +1031,5 @@ const AccReg: React.FC = () => {
     </div>
   );
 };
+
 export default AccReg;

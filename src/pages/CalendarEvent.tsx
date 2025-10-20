@@ -156,7 +156,7 @@ export default function CalendarEvent() {
         
         {/* Calendar Events Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-bold">Calendar Events</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Calendar Events</h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -227,17 +227,17 @@ export default function CalendarEvent() {
 
                       {/* Event Info */}
                       <div className="flex-1">
-                        <div className="font-medium text-base">
+                        <div className="font-bold text-lg font-montserrat">
                           {event.title}
                         </div>
                         {/* Display description in the list (shortened) */}
                         {event.description && (
-                          <div className="text-xs text-gray-400 italic">
+                          <div className="text-sm text-gray-500 italic">
                             {event.description.substring(0, 50)}
                             {event.description.length > 50 ? '...' : ''}
                           </div>
                         )}
-                        <div className="text-sm text-gray-600">
+                        <div className="text-sm text-gray-600 mt-5">
                           {event.start.toLocaleDateString(undefined, {
                             weekday: "short",
                             year: "numeric",
@@ -254,16 +254,7 @@ export default function CalendarEvent() {
                           })}
                         </div>
 
-                        {/* Display created date if available */}
-                        {event.createdAt && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            Created: {event.createdAt.toLocaleDateString()} at{' '}
-                            {event.createdAt.toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </div>
-                        )}
+                       
                       </div> 
                     </div> 
                     // END of Event Item

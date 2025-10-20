@@ -1,21 +1,18 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-// ⭐️ IMPORTANTE: I-import ang useNavigate mula sa React Router
-import { useNavigate } from 'react-router-dom'; 
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { UserCircleIcon, ShareIcon, ArrowPathIcon } from '@heroicons/react/24/outline'; 
+import { useNavigate } from 'react-router-dom';
 
-import { collection, getDocs, query, where, Timestamp,
-} from "firebase/firestore";
-// Assume this path is correct for your Firebase initialization
-import { db } from "../Firebase"; 
+// --- Firebase Imports ---
+import { db } from "../Firebase";
+import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore'; 
+import TrafficChartWidget from '../components/TrafficChartWidget';
 
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,} from "recharts";
-import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline'; 
-
-// --- TYPE DEFINITIONS (UPDATED) ---
+// --- TYPE DEFINITIONS ---
 interface EventType {
     id?: string;
     title: string;
     start: Date;
-    // Ginawang optional ang 'end' dahil ito ang nag-cause ng 'undefined (reading 'seconds')' error
     end?: Date; 
     description?: string;
 }
@@ -41,6 +38,7 @@ function MemberStatBlock({
     active,
     inactive,
     newMembers,
+    rawTotal
 }: {
     current: number;
     active: number;
@@ -123,7 +121,7 @@ function FinancialOverview({
                             tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`} 
                             tickLine={false} 
                             axisLine={false}
-                            domain={[0, 20000]} 
+                            domain={[0, 'auto']}
                             tickCount={5} 
                         />
                         <Tooltip formatter={(value: any) => [`₱${value.toLocaleString()}`, "Amount"]} />
@@ -141,13 +139,12 @@ function FinancialOverview({
     );
 }
 
-// ⭐️ UPDATED: Nagdagdag ng 'onViewMoreClick' prop
 function InfoCard({ title, children, footer, footerContent, onViewMoreClick }: { 
     title: string; 
     children: React.ReactNode; 
     footer?: string; 
     footerContent?: React.ReactNode;
-    onViewMoreClick?: () => void; // New prop
+    onViewMoreClick?: () => void;
 }) {
     const isViewMore = footer === "View More";
     
@@ -155,11 +152,10 @@ function InfoCard({ title, children, footer, footerContent, onViewMoreClick }: {
     if (footerContent) {
         actualFooterContent = footerContent; 
     } else if (isViewMore) {
-        // ⭐️ UPDATED: Inilipat ang onClick handler dito
         actualFooterContent = (
             <button 
                 className="text-sm font-semibold text-[#007963] hover:text-[#005a4a]"
-                onClick={onViewMoreClick} // Use the passed handler
+                onClick={onViewMoreClick}
             >
                 View More
             </button>
@@ -172,7 +168,7 @@ function InfoCard({ title, children, footer, footerContent, onViewMoreClick }: {
 
     return (
         <div className="bg-white rounded shadow-md flex flex-col h-full min-h-[250px]">
-            <div className="p-4 bg-[#1e4643] rounded-t border-b border-gray-600"> 
+            <div className="p-4 bg-object rounded-t border-b border-gray-600"> 
                 <h2 className="text-lg font-semibold text-white">{title}</h2>
             </div>
             <div className="flex-1 px-4 py-2">{children}</div>
@@ -183,7 +179,6 @@ function InfoCard({ title, children, footer, footerContent, onViewMoreClick }: {
     );
 }
 
-// ⭐️ UPDATED: Nagdagdag ng 'onViewMoreClick' prop
 function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void }) {
     const today = new Date();
     const currentMonthLabel = today.toLocaleString("default", { month: "long" });
@@ -202,10 +197,14 @@ function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void
     const [isLoading, setIsLoading] = useState(true);
 
     const fetchFullyPaidMembers = useCallback(async (monthYear: string) => {
+        if (!db) return;
+
         setIsLoading(true);
         try {
+            const contributionsCollectionPath = `contributions`;
+
             const contributionsQuery = query(
-                collection(db, "contributions"),
+                collection(db, contributionsCollectionPath),
                 where("monthYear", "==", monthYear) 
             );
             
@@ -253,10 +252,9 @@ function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void
                     ))}
                 </select>
             </div>
-            {/* ⭐️ UPDATED: Inilipat ang onClick handler dito */}
             <button 
                 className="text-[#007963] hover:text-[#005a4a]"
-                onClick={onViewMoreClick} // Use the passed handler
+                onClick={onViewMoreClick}
             >
                 View More
             </button> 
@@ -270,7 +268,9 @@ function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void
         >
             <div className="text-center my-6 h-40 flex flex-col justify-center">
                 {isLoading ? (
-                    <div className="text-3xl text-gray-500 font-semibold">Loading...</div>
+                    <div className="text-3xl text-gray-500 font-semibold flex justify-center">
+                         <ArrowPathIcon className="h-8 w-8 animate-spin text-gray-400"/>
+                    </div>
                 ) : (
                     <div className="text-5xl font-bold text-[#007963] mb-2">{fullyPaidMembers}</div>
                 )}
@@ -286,7 +286,6 @@ function FullyPaidMembersCard({ onViewMoreClick }: { onViewMoreClick: () => void
 // --- MAIN DASHBOARD COMPONENT (CORE CONTENT) ---
 // -------------------------------------------------------------------
 
-// ⭐️ UPDATED: Nagdagdag ng props para sa navigation
 interface DashboardProps {
     adminUsername: string;
     onViewComplaintsClick: () => void;
@@ -305,8 +304,6 @@ function Dashboard({
     const [selectedYear, setSelectedYear] = useState(currentYear); 
     const YEAR_OPTIONS = useMemo(() => generateYearOptions(2020, currentYear), [currentYear]); 
     
-    const [currentTime, setCurrentTime] = useState(new Date()); 
-    
     const [events, setEvents] = useState<EventType[]>([]);
     const [rawTotalMembers, setRawTotalMembers] = useState(0); 
     const [currentMembersCount, setCurrentMembersCount] = useState(0); 
@@ -319,19 +316,35 @@ function Dashboard({
     const [financialData, setFinancialData] = useState<any[]>([]);
     const [newComplaints, setNewComplaints] = useState(0); 
     const [totalComplaints, setTotalComplaints] = useState(0); 
-    
+
+    // Navigation hook
+    const navigate = useNavigate();
+
+    // Navigation handlers
+    const handleAdminClick = () => {
+        navigate('/EditModal');
+    };
+
+    // Simplified collection paths
+    const memberCollectionPath = "members";
+    const complaintsCollectionPath = "complaints";
+    const eventsCollectionPath = "events";
+    const contributionsCollectionPath = "contributions";
+    const expensesCollectionPath = "expenses";
+
     // --- Data Fetching Callbacks ---
     const calculateHOABalance = useCallback(async () => { 
+        if (!db) return;
         const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
         const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1)); 
 
         try {
-            const contributionsQuery = query(collection(db, "contributions"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
+            const contributionsQuery = query(collection(db, contributionsCollectionPath), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
             const contributionsSnapshot = await getDocs(contributionsQuery);
             let totalCollections = 0;
             contributionsSnapshot.forEach((doc) => { totalCollections += Number(doc.data().amount) || 0; });
 
-            const expensesQuery = query(collection(db, "expenses"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
+            const expensesQuery = query(collection(db, expensesCollectionPath), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear));
             const expensesSnapshot = await getDocs(expensesQuery);
             let totalExpenses = 0;
             expensesSnapshot.forEach((doc) => { totalExpenses += Number(doc.data().amount) || 0; });
@@ -344,27 +357,27 @@ function Dashboard({
     }, [selectedYear]); 
 
     const fetchComplaintsData = useCallback(async () => { 
+        if (!db) return;
         try {
-            const newComplaintsSnapshot = await getDocs(query(collection(db, "complaints"), where("status", "==", "new")));
+            const newComplaintsSnapshot = await getDocs(query(collection(db, complaintsCollectionPath), where("status", "==", "new")));
             setNewComplaints(newComplaintsSnapshot.size);
-            const allComplaintsSnapshot = await getDocs(collection(db, "complaints"));
+            const allComplaintsSnapshot = await getDocs(collection(db, complaintsCollectionPath));
             setTotalComplaints(allComplaintsSnapshot.size);
         } catch (error) {
             console.error("Error fetching complaints data:", error);
-            setNewComplaints(0); setTotalComplaints(0);
+            setNewComplaints(0); 
+            setTotalComplaints(0);
         }
     }, []);
     
-    // ⭐️ FIXED: Ito ang function na inayos para iwasan ang 'seconds' error.
     const fetchEvents = useCallback(async () => { 
+        if (!db) return;
         try {
-            const querySnapshot = await getDocs(collection(db, "events"));
+            const querySnapshot = await getDocs(collection(db, eventsCollectionPath));
             const eventsFromDB = querySnapshot.docs.map((doc) => {
                 const data = doc.data();
                 
-                // Helper function para i-convert ang Timestamp
                 const convertToDate = (timestamp: any): Date | undefined => {
-                    // Tiyakin na ang timestamp ay mayroong 'seconds' property at ito ay Timestamp
                     if (timestamp && typeof timestamp.seconds === 'number') {
                         return new Date(timestamp.seconds * 1000);
                     }
@@ -374,74 +387,80 @@ function Dashboard({
                 const startDate = convertToDate(data.start);
                 const endDate = convertToDate(data.end);
 
-                // Tiyakin na mayroon talagang start date bago i-include sa list
                 if (!startDate) return null; 
 
                 return {
                     id: doc.id,
                     title: data.title,
                     start: startDate,
-                    // Kung may valid endDate, gamitin ito; kung wala, ang start date na lang
                     end: endDate || startDate, 
                     description: data.description || "",
                 };
-            }).filter(event => event !== null) as EventType[]; // Tanggalin ang null entries
+            }).filter(event => event !== null) as EventType[];
             
             eventsFromDB.sort((a, b) => a.start.getTime() - b.start.getTime());
             const now = new Date();
-            // I-check kung tapos na ang event gamit ang 'end' date. Kung walang 'end', gagamitin ang 'start'
-            setEvents(eventsFromDB.filter(event => event.end!.getTime() >= now.getTime())); 
+            setEvents(eventsFromDB.filter(event => (event.end ? event.end.getTime() : event.start.getTime()) >= now.getTime())); 
         } catch (error) {
             console.error("Error fetching events:", error);
         }
     }, []);
-    // ----------------------------------------------------------------
     
     const fetchAnalytics = useCallback(async () => { 
+        if (!db) return;
         try {
-            const membersSnapshot = await getDocs(collection(db, "members"));
-            const currentMembersPool = membersSnapshot.docs.map(doc => doc.data()).filter(member => member.status && member.status.toLowerCase() !== "deleted");
+            const membersSnapshot = await getDocs(collection(db, memberCollectionPath));
+            const members = membersSnapshot.docs.map(doc => doc.data());
+            
+            const currentMembersPool = members.filter(member => member.status && member.status.toLowerCase() !== "deleted");
+            
             setActiveMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "active").length);
             setInactiveMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "inactive").length);
             setNewMembers(currentMembersPool.filter(member => member.status && member.status.toLowerCase() === "new").length);
             setCurrentMembersCount(currentMembersPool.length);
-            setRawTotalMembers(0); 
+            setRawTotalMembers(members.length); 
         } catch (error) {
-            console.log("CRITICAL ERROR FETCHING ANALYTICS:", error);
-            setRawTotalMembers(0); setCurrentMembersCount(0); setActiveMembers(0); setInactiveMembers(0); setNewMembers(0);
+            console.error("Error fetching analytics:", error);
+            setRawTotalMembers(0); 
+            setCurrentMembersCount(0); 
+            setActiveMembers(0); 
+            setInactiveMembers(0); 
+            setNewMembers(0);
         }
     }, []);
     
     const fetchFinanceOverview = useCallback(async () => { 
+        if (!db) return;
         try {
             const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
             const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1)); 
-            const collectionsSnap = await getDocs(query(collection(db, "contributions"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
-            const expensesSnap = await getDocs(query(collection(db, "expenses"), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
+            const collectionsSnap = await getDocs(query(collection(db, contributionsCollectionPath), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
+            const expensesSnap = await getDocs(query(collection(db, expensesCollectionPath), where("transactionDate", ">=", startOfYear), where("transactionDate", "<", endOfYear)));
 
             const monthAbbreviations = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
             const monthlyMap: Record<string, { collections: number; expenses: number }> = {};
             monthAbbreviations.forEach(month => { monthlyMap[month] = { collections: 0, expenses: 0 }; });
 
-            const parseMonth = (timestamp: any) => {
-                const date = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp.seconds * 1000); 
-                return date.toLocaleString("default", { month: "short" }).toUpperCase();
-            };
-
             collectionsSnap.forEach((doc) => {
                 const data = doc.data();
                 const timestampField = data.transactionDate || data.timestamp; 
                 if (!timestampField || !data.amount) return;
-                const month = parseMonth(timestampField);
-                if (monthlyMap[month]) { monthlyMap[month].collections += Number(data.amount) || 0; }
+                const date = timestampField instanceof Timestamp ? timestampField.toDate() : new Date(timestampField.seconds * 1000);
+                if (date.getFullYear() === selectedYear) {
+                    const month = date.toLocaleString("default", { month: "short" }).toUpperCase();
+                    if (monthlyMap[month]) { monthlyMap[month].collections += Number(data.amount) || 0; }
+                }
             });
 
             expensesSnap.forEach((doc) => {
                 const data = doc.data();
                 const timestampField = data.transactionDate; 
                 if (!timestampField || !data.amount) return;
-                const month = parseMonth(timestampField);
-                if (monthlyMap[month]) { monthlyMap[month].expenses += Number(data.amount) || 0; }
+                 const date = timestampField instanceof Timestamp ? timestampField.toDate() : new Date(timestampField.seconds * 1000);
+                if (date.getFullYear() === selectedYear) {
+                    const month = date.toLocaleString("default", { month: "short" }).toUpperCase();
+                    if (monthlyMap[month]) { monthlyMap[month].expenses += Number(data.amount) || 0; }
+                }
             });
 
             setFinancialData(monthAbbreviations.map((month) => ({
@@ -453,17 +472,8 @@ function Dashboard({
             console.error("Error loading financial data:", err);
         }
     }, [selectedYear]); 
-    // ---------------------------------------------------------------
-
 
     // --- EFFECT HOOKS ---
-    useEffect(() => {
-        const timerId = setInterval(() => {
-            setCurrentTime(new Date());
-        }, 1000); 
-        return () => clearInterval(timerId); 
-    }, []);
-
     useEffect(() => {
         fetchEvents();
         fetchAnalytics(); 
@@ -475,226 +485,18 @@ function Dashboard({
         calculateHOABalance();
     }, [selectedYear, fetchFinanceOverview, calculateHOABalance]);
 
-    
-    // FORMATTING using the currentTime state
-    const formattedTime = currentTime.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-    const formattedDate = currentTime.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-    });
-
-    // --- JSX RENDER ---
-    return (
-        <div className="p-6"> 
-
-            {/* Header and Date/Time Panel */}
-            <div className="flex justify-between items-start mb-6">
-
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-800">
-                        Welcome back, {adminUsername}
-                    </h1>
-                    <p className="text-base text-gray-500 mt-1">
-                        See the overview and activities of the HOA
-                    </p>
-                </div>
-                {/* Date/Time Panel */}
-                <div className="w-[180px] bg-white p-4 text-center rounded shadow-md flex-shrink-0">
-                    <p className="text-2xl font-bold text-gray-800">
-                        {formattedTime}
-                    </p>
-                    <p className="text-base text-gray-500">{formattedDate}</p>
-                </div>
-            </div>
-
-            <div className="flex flex-col lg:flex-row gap-6">
-
-                {/* Left Column: Stats and Charts */}
-                <div className="flex-1 space-y-6">
-
-                    {/* Stat Boxes: Member Stats and Balance Stat */}
-                    <div className="flex flex-wrap gap-4 border-b border-gray-200 pb-4">
-                        <MemberStatBlock
-                            current={currentMembersCount} 
-                            active={activeMembers}
-                            inactive={inactiveMembers}
-                            newMembers={newMembers}
-                            rawTotal={rawTotalMembers} 
-                        />
-
-                        <StatBox
-                            label={`Total Net ${selectedYear} (HOA Balance)`}
-                            value={
-                                hoaBalance !== null
-                                        ? `₱${hoaBalance.toLocaleString()}`
-                                        : "Loading..."
-                            }
-                            type="balance"
-                        />
-                    </div>
-
-                    {/* Financial Overview Chart with Year Selector */}
-                    <FinancialOverview 
-                        data={financialData} 
-                        selectedYear={selectedYear}
-                        setSelectedYear={setSelectedYear}
-                        yearOptions={YEAR_OPTIONS}
-                    />
-
-                    {/* Bottom Section (Small Cards) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <InfoCard title="Traffic Acquisition" footer="View More">
-                             <div className="h-40 flex items-center justify-center">
-                                 <p className="text-sm text-gray-500">
-                                     [Chart coming soon]
-                                 </p>
-                             </div>
-                        </InfoCard>
-
-                        <InfoCard 
-                            title="Complaints" 
-                            footer="View More"
-                            onViewMoreClick={onViewComplaintsClick} // ⭐️ NAVIGATION: Complaints
-                        >
-                            <div className="flex justify-around items-center h-40">
-                                <div className="text-center">
-                                    <div className="text-3xl font-bold text-gray-800 mb-1">{newComplaints}</div>
-                                    <p className="text-sm text-gray-500">New Complaints</p>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-3xl font-bold text-gray-800 mb-1">{totalComplaints}</div>
-                                    <p className="text-sm text-gray-500">Total Complaints</p>
-                                </div>
-                            </div>
-                        </InfoCard>
-
-                        <InfoCard title="Ongoing Projects" footer="View More">
-                            <div className="h-full flex items-center justify-center ">
-                                <p className="text-lg font-semibold text-gray-500">No current projects</p>
-                            </div>
-                        </InfoCard>
-
-                        <FullyPaidMembersCard onViewMoreClick={onViewContributionsClick} /> {/* ⭐️ NAVIGATION: Contributions */}
-                    </div>
-
-                </div>
-
-                {/* Right Column: Upcoming Events */}
-                <div className="w-full lg:w-[350px] bg-white rounded shadow-md flex flex-col flex-shrink-0">
-                    
-                    {/* Custom Dark Green Header for Upcoming Events */}
-                    <div className="p-4 bg-[#1e4643] rounded-t border-b border-gray-600"> 
-                        <h2 className="text-lg font-semibold text-white">
-                            Upcoming Events
-                        </h2>
-                        <div className="text-sm text-white mt-1">Total {events.length} Upcoming Events</div>
-                    </div>
-                    
-                    {/* Event List */}
-                    <div className="p-4 max-h-[700px] overflow-y-auto flex-grow">
-                        {events.length > 0 ? (
-                            events.map((event, index) => {
-                                // Tiyakin na mayroong 'start' bago gamitin
-                                if (!event.start) return null; 
-
-                                const eventDate = event.start;
-                                const month = eventDate.toLocaleString("default", { month: "short" });
-                                const day = eventDate.getDate();
-                                const start = event.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                                
-                                return (
-                                    <div
-                                        key={index}
-                                        className="flex gap-4 py-3 border-b border-gray-200 last:border-b-0"
-                                    >
-                                        {/* Date Box */}
-                                        <div className="bg-[#007963] text-white text-center p-1 rounded font-bold w-16 h-16 flex flex-col justify-center items-center flex-shrink-0">
-                                            <span className="text-xs leading-none">{month.toUpperCase()}</span>
-                                            <span className="text-2xl leading-none">{day}</span>
-                                        </div>
-                                        <div>
-                                            <h3 className="font-semibold text-gray-800 text-base">
-                                                {event.title}
-                                            </h3>
-                                            {event.description && (
-                                                <p className="text-sm text-gray-600 mt-0.5">
-                                                    {event.description}
-                                                </p>
-                                            )}
-                                            <p className="text-xs text-gray-500 mt-0.5">{`${eventDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} | ${start}`}</p>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        ) : (
-                            <div className="text-center text-gray-500 py-10">
-                                <p>No upcoming events.</p>
-                            </div>
-                        )}
-                    </div>
-                    
-                    {/* View Events Button */}
-                    <div className="p-4 border-t border-gray-200 bg-white text-center">
-                        <button 
-                            className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]"
-                            onClick={onViewEventsClick} // ⭐️ NAVIGATION: CalendarEvents
-                        >
-                            View Events
-                        </button>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-    );
-}
-
-// -------------------------------------------------------------------
-// II. WRAPPER COMPONENT WITH HEADER AND NAVIGATION LOGIC (EXPORTED COMPONENT)
-// -------------------------------------------------------------------
-
-export default function DashboardContainer() {
-    const headerBgColor = 'bg-[#1e4643]'; 
-    const adminUsername = "Admin"; 
-    
-    // Initialize useNavigate
-    const navigate = useNavigate(); 
-    
-    // --- Navigation Handlers ---
-    const handleAdminClick = () => {
-        navigate('/EditModal'); 
-    };
-    
-    // ⭐️ NEW HANDLER: Complaints page
-    const handleViewComplaintsClick = () => {
-        navigate('/Complaints'); 
-    };
-
-    // ⭐️ NEW HANDLER: Contributions/Payments page
-    const handleViewContributionsClick = () => {
-        navigate('/Contribution'); // Assuming your contributions/payments page path is '/Contributions'
-    };
-
-    // ⭐️ NEW HANDLER: CalendarEvents page
-    const handleViewEventsClick = () => {
-        navigate('/CalendarEvent'); 
-    };
-    // ---------------------------
-
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
-            
-            {/* TOP HEADER */}
-            <header className={`w-full ${headerBgColor} text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0`}>
+            {/* TOP HEADER - Dashboard Header (SAME AS CALENDAR) */}
+            <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
                 
-                {/* Dashboard Title on the Left */}
+                {/* Dashboard Title - Left Side */}
                 <div className="flex items-center space-x-4">
-                    <h1 className="text-xl font-bold">Admin Dashboard</h1>
+                    <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Dashboard</h1>
                 </div>
+
+                {/* Empty Center for Balance */}
+                <div className="flex-1"></div>
 
                 {/* Profile/User Icon on the Right */}
                 <div className="flex items-center space-x-3">
@@ -708,20 +510,164 @@ export default function DashboardContainer() {
                         onClick={handleAdminClick} 
                     >
                         <UserCircleIcon className="h-8 w-8 text-white" />
-                        <span className="text-sm font-medium hidden sm:inline">{adminUsername}</span>
+                        <span className="text-sm font-medium hidden sm:inline">Admin</span>
                     </div>
                 </div>
             </header>
 
-            {/* MAIN CONTENT AREA */}
-            <main className="flex-1 overflow-auto">
-                <Dashboard 
-                    adminUsername={adminUsername} 
-                    onViewComplaintsClick={handleViewComplaintsClick} 
-                    onViewContributionsClick={handleViewContributionsClick}
-                    onViewEventsClick={handleViewEventsClick}
-                /> 
+            {/* MAIN CONTENT */}
+            <main className="flex-1 overflow-auto p-6">
+                <div className="space-y-6">
+                    {/* Welcome Panel */}
+                    <div className="flex justify-between items-start mb-6 flex-wrap gap-4">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-800">
+                                Welcome back, {adminUsername}
+                            </h1>
+                            <p className="text-base text-gray-500 mt-1">
+                                See the overview and activities of the HOA
+                            </p>
+                        </div>
+                        <div className="w-[180px] bg-white p-4 text-center rounded shadow-md flex-shrink-0">
+                            <p className="text-2xl font-bold text-gray-800">
+                                {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                            <p className="text-base text-gray-500">
+                                {new Date().toLocaleDateString("en-US", {
+                                    year: "numeric",
+                                    month: "long",
+                                    day: "numeric",
+                                })}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col lg:flex-row gap-6">
+                        {/* Left Column: Stats and Charts */}
+                        <div className="flex-1 space-y-6">
+                            {/* Stat Boxes: Member Stats and Balance Stat */}
+                            <div className="flex flex-wrap gap-4 border-b border-gray-200 pb-4">
+                                <MemberStatBlock
+                                    current={currentMembersCount} 
+                                    active={activeMembers}
+                                    inactive={inactiveMembers}
+                                    newMembers={newMembers}
+                                    rawTotal={rawTotalMembers} 
+                                />
+
+                                <StatBox
+                                    label={`Total Net ${selectedYear} (HOA Balance)`}
+                                    value={
+                                        hoaBalance !== null
+                                            ? `₱${hoaBalance.toLocaleString()}`
+                                            : "Loading..."
+                                    }
+                                    type="balance"
+                                />
+                            </div>
+
+                            {/* Financial Overview Chart with Year Selector */}
+                            <FinancialOverview 
+                                data={financialData} 
+                                selectedYear={selectedYear}
+                                setSelectedYear={setSelectedYear}
+                                yearOptions={YEAR_OPTIONS}
+                            />
+
+                            {/* Bottom Section (Small Cards) - NOW 3 COLUMNS */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                
+                                {/* 1. ACTUAL TRAFFIC WIDGET */}
+                                <TrafficChartWidget />
+
+                                {/* 2. COMPLAINTS CARD */}
+                                <InfoCard 
+                                    title="Complaints" 
+                                    footer="View More"
+                                    onViewMoreClick={onViewComplaintsClick}
+                                >
+                                    <div className="flex justify-around items-center h-40">
+                                        <div className="text-center">
+                                            <div className="text-3xl font-bold text-gray-800 mb-1">{newComplaints}</div>
+                                            <p className="text-sm text-gray-500">New Complaints</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <div className="text-3xl font-bold text-gray-800 mb-1">{totalComplaints}</div>
+                                            <p className="text-sm text-gray-500">Total Complaints</p>
+                                        </div>
+                                    </div>
+                                </InfoCard>
+
+                                {/* TANGGAL NA ANG ONGOING PROJECTS CARD DITO */}
+
+                                {/* 3. FULLY PAID MEMBERS CARD */}
+                                <FullyPaidMembersCard onViewMoreClick={onViewContributionsClick} />
+                            </div>
+                        </div>
+
+                        {/* Right Column: Upcoming Events */}
+                        <div className="w-full lg:w-[350px] bg-white rounded shadow-md flex flex-col flex-shrink-0">
+                            <div className="p-4 bg-object rounded-t border-b border-gray-600"> 
+                                <h2 className="text-lg font-semibold text-white">
+                                    Upcoming Events
+                                </h2>
+                                <div className="text-sm text-white mt-1">Total {events.length} Upcoming Events</div>
+                            </div>
+                            
+                            <div className="p-4 max-h-[700px] overflow-y-auto flex-grow">
+                                {events.length > 0 ? (
+                                    events.map((event, index) => {
+                                        if (!event.start) return null; 
+
+                                        const eventDate = event.start;
+                                        const month = eventDate.toLocaleString("default", { month: "short" });
+                                        const day = eventDate.getDate();
+                                        const start = eventDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                                        
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="flex gap-4 py-3 border-b border-gray-200 last:border-b-0"
+                                            >
+                                                <div className="bg-[#007963] text-white text-center p-1 rounded font-bold w-16 h-16 flex flex-col justify-center items-center flex-shrink-0">
+                                                    <span className="text-xs leading-none">{month.toUpperCase()}</span>
+                                                    <span className="text-2xl leading-none">{day}</span>
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-semibold text-gray-800 text-base">
+                                                        {event.title}
+                                                    </h3>
+                                                    {event.description && (
+                                                        <p className="text-sm text-gray-600 mt-0.5 truncate max-w-full">
+                                                            {event.description}
+                                                        </p>
+                                                    )}
+                                                    <p className="text-xs text-gray-500 mt-0.5">{`${eventDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} | ${start}`}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="text-center text-gray-500 py-10">
+                                        <p>No upcoming events.</p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div className="p-4 border-t border-gray-200 bg-white text-center">
+                                <button 
+                                    className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]"
+                                    onClick={onViewEventsClick}
+                                >
+                                    View Events
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </main>
         </div>
     );
 }
+
+export default Dashboard;

@@ -11,12 +11,14 @@ import {
   Clock,
   ListFilter,
   ChevronDown,
+  UserCircle,
+  Share,
 } from "lucide-react";
 import { collection, addDoc, getDocs, deleteDoc, doc } from "firebase/firestore";
-// NOTE: Make sure your Firebase.ts path is correct and db/storage are exported
 import { db } from "../Firebase"; 
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
+import { useNavigate } from 'react-router-dom';
 
 // --- Dropdown Component (From Original UI) ---
 const Dropdown: React.FC<{ label: React.ReactNode; children: React.ReactNode }> = ({ label, children }) => {
@@ -43,7 +45,6 @@ const Dropdown: React.FC<{ label: React.ReactNode; children: React.ReactNode }> 
         <ChevronDown className="w-4 h-4" />
       </button>
       {open && (
-        // Added onClick to close dropdown on item click
         <div className="absolute left-0 mt-1 bg-white border rounded shadow-lg w-40 z-20" onClick={() => setOpen(false)}>
           {children}
         </div>
@@ -92,6 +93,18 @@ const FoldersPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortKey>("lastAccess");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
+  // Navigation hook
+  const navigate = useNavigate();
+
+  // Navigation handlers
+  const handleAdminClick = () => {
+    navigate('/EditModal');
+  };
+
+  const handleDashboardClick = () => {
+    navigate('/Dashboard');
+  };
+
   // --- Utility Functions ---
   const getFileExtension = (filename: string): FileExtension => {
     const extension = filename.split(".").pop()?.toLowerCase() || "";
@@ -114,13 +127,11 @@ const FoldersPage: React.FC = () => {
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 KB';
     const k = 1024;
-    // We adjust the sizes to match the original display of "KB"
     if (bytes < k) return `${bytes} Bytes`;
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     if (i === 1) return (bytes / k).toFixed(2) + " KB";
-    // For larger files, use MB/GB but keep KB for the original UI feel if size is small
     const sizes = ['KB', 'MB', 'GB'];
-    if (i > sizes.length) return 'Very Large'; // Safety check
+    if (i > sizes.length) return 'Very Large';
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i - 1];
   };
 
@@ -172,7 +183,6 @@ const FoldersPage: React.FC = () => {
     }
 
     const storage = getStorage();
-    // Use timestamp + filename for a safer unique storage key
     const uniqueFileName = `${Date.now()}_${file.name}`;
     const fileRef = ref(storage, `admin_docs/${uniqueFileName}`); 
 
@@ -185,8 +195,7 @@ const FoldersPage: React.FC = () => {
         url: downloadURL,
         size: file.size,
         lastAccess: format(new Date(), "MMMM dd, yyyy"),
-        location: selectedFolderId, 
-        // Note: In a production app, you might also save 'storagePath': `admin_docs/${uniqueFileName}`
+        location: selectedFolderId,
       };
 
       const docRef = await addDoc(collection(db, "admin_docs"), newDoc);
@@ -202,10 +211,8 @@ const FoldersPage: React.FC = () => {
   const handleDeleteFile = async (fileId: string, fileName: string) => {
     if (window.confirm(`Are you sure you want to delete the file: ${fileName}?`)) {
       try {
-        // 1. Delete from Firestore
         await deleteDoc(doc(db, "admin_docs", fileId));
 
-        // 2. Delete from Storage (this is complex without the full storage path, using file name as fallback)
         const storage = getStorage();
         const fileRef = ref(storage, `admin_docs/${fileName}`); 
         try {
@@ -214,7 +221,6 @@ const FoldersPage: React.FC = () => {
             console.warn(`Storage deletion warning for ${fileName}: File might have a different storage name. Proceeding with Firestore delete.`, storageError);
         }
 
-        // 3. Update local state
         setFiles((prev) => prev.filter((file) => file.id !== fileId));
         setOpenMenuIndex(null); 
       } catch (error) {
@@ -269,7 +275,6 @@ const FoldersPage: React.FC = () => {
       setSortDirection(prev => (prev === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(key);
-      // Default sort direction for better UX: desc for date/size, asc for name
       setSortDirection(key === "name" ? "asc" : "desc"); 
     }
   };
@@ -335,11 +340,37 @@ const FoldersPage: React.FC = () => {
   // --- Page Render ---
   return (
     <div className="min-h-screen bg-white">
+      {/* TOP HEADER - Folders Header */}
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+        
+        {/* Folders Title - Left Side */}
+        <div className="flex items-center space-x-4">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Folders</h1>
+        </div>
+
+        {/* Empty Center for Balance */}
+        <div className="flex-1"></div>
+
+        {/* Profile/User Icon on the Right */}
+        <div className="flex items-center space-x-3">
+          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+            <Share size={20} /> 
+          </button>
+
+          {/* ADMIN BUTTON: Navigation Handler */}
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+            onClick={handleAdminClick} 
+          >
+            <UserCircle size={32} />
+            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+          </div>
+        </div>
+      </header>
+
       <main className="bg-gray-100">
         {/* Header */}
-        <div className="bg-teader p-6">
-          <h1 className="text-2xl text-white font-semibold">Folders</h1>
-        </div>
+      
 
         {/* Content */}
         <div className="p-6 space-y-6">
@@ -362,7 +393,6 @@ const FoldersPage: React.FC = () => {
                 <div className="text-xs text-gray-500">{folder.date}</div>
                 <div className="flex justify-end mt-2">
                   <span className="text-xs text-gray-600 font-bold">
-                    {/* Updated File Count Logic */}
                     {
                         folder.id === "Admin Docs Folder" 
                         ? files.length 
@@ -409,16 +439,15 @@ const FoldersPage: React.FC = () => {
                   <div className="col-span-2 flex items-center gap-2">
                     <File className={`w-4 h-4 ${getFileIconColor(file.name)}`} />
                     
-                    {/* 👇 REVISED CODE: Added 'download' attribute, removed target="_blank" */}
+                    {/* Download link with download attribute */}
                     <a
                       href={file.url}
-                      download // <-- Ito ang nagpapagana ng auto-download
+                      download
                       className="hover:underline text-blue-600 truncate max-w-[90%]"
                       title={`Click to download: ${file.name}`}
                     >
                       {file.name}
                     </a>
-                    {/* 👆 END REVISED CODE */}
                   </div>
                   <div>{file.lastAccess}</div>
                   <div>{formatFileSize(file.size)}</div>

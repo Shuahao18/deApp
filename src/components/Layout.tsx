@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
-// 🚨 IMPORTANT: Make sure your '../Firebase' file exports 'auth' and 'db'
 import { auth, db } from "../Firebase"; 
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 
@@ -20,9 +19,8 @@ import {
     ChevronRight, 
     DollarSign, 
     ArrowRightCircle, 
-    Home, 
+    Home,
 } from "lucide-react";
-
 
 // --- Utility Component for Menu Items ---
 interface SidebarLinkProps {
@@ -36,7 +34,6 @@ const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label, badgeCount }
     const location = useLocation();
     const isActive = location.pathname === to;
     
-    // Figma/UI accurate styling
     const activeClass = isActive
         ? "bg-green-700 font-semibold" 
         : "hover:bg-green-800 text-gray-200 hover:text-white"; 
@@ -44,7 +41,6 @@ const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label, badgeCount }
     return (
         <Link
             to={to}
-            // Added justify-between to push the badge to the right
             className={`flex items-center space-x-3 p-3 rounded-lg transition-colors justify-between ${activeClass}`} 
         >
             <div className="flex items-center space-x-3">
@@ -52,7 +48,6 @@ const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label, badgeCount }
                 <span className="text-sm">{label}</span>
             </div>
             
-            {/* 🎯 UPDATED LOGIC: Only show badge if badgeCount exists and is greater than 0 */}
             {badgeCount !== undefined && badgeCount > 0 && (
                 <span className="ml-auto bg-red-500 text-white text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full">
                     {badgeCount}
@@ -62,65 +57,64 @@ const SidebarLink: React.FC<SidebarLinkProps> = ({ to, icon, label, badgeCount }
     );
 };
 
-
 const Layout = () => {
     const [isAccountingOpen, setIsAccountingOpen] = useState(false);
-    // State to hold the count fetched from Firestore
     const [newComplaintsCount, setNewComplaintsCount] = useState(0); 
     const navigate = useNavigate();
     
-    // Custom color variable (assuming mainColor is the deep green)
     const mainBg = "bg-mainColor"; 
     const headerColor = "bg-headerColor";
     const hoverColor = "hover:bg-green-800";
 
-    // ---------------------------------------------
-    // ## FIREBASE REALTIME COMPLAINTS COUNT LOGIC ##
-    // ---------------------------------------------
+    // Complaints Count Logic
     useEffect(() => {
-        // 1. Create the query: 'complaints' collection, filter by 'status' == 'New'
-        // 🎯 FIX: Changed "new" to "New" to match Firestore data case-sensitivity.
         const complaintsQuery = query(
             collection(db, "complaints"),
             where("status", "==", "new") 
         );
 
-        // 2. Set up the real-time listener (onSnapshot)
         const unsubscribe = onSnapshot(complaintsQuery, (querySnapshot) => {
-            // querySnapshot.size gives the exact number of matching documents
             const count = querySnapshot.size;
             setNewComplaintsCount(count);
         }, (error) => {
             console.error("Error fetching new complaints count:", error);
-            // Fallback in case of error
             setNewComplaintsCount(0); 
         });
 
-        // 3. Cleanup: Return the unsubscribe function to stop listening
         return () => unsubscribe();
-    }, []); // Empty dependency array means this runs only once on mount
+    }, []);
 
     const handleLogout = async () => {
         try {
             await signOut(auth);
-            navigate("/"); // Redirect to login page after logout
+            navigate("/");
         } catch (error) {
             console.error("Logout error:", error);
         }
     };
 
     return (
-        <div className="flex h-screen">
-            {/* Sidebar (Fixed Width w-64, Deep Green background) */}
+        <div className="flex h-screen ">
+            {/* Sidebar */}
             <div className={`w-64 ${mainBg} text-white flex flex-col h-full shadow-2xl`}>
                 
-                {/* --- 1. Logo/Title Area --- */}
-                <div className={`p-4 ${headerColor} flex items-center justify-center h-15 shadow-md`}>
-                    <div className="w-8 h-8 mr-2 bg-white rounded-full flex items-center justify-center">
-                        <Home className="w-5 h-5 text-green-900"/>
-                    </div>
-                    <div className="text-lg font-extrabold tracking-wide">
-                        HOA Panel
+                {/* --- 1. Logo Area - SIMPLE TEXT LOGO MUNNA --- */}
+                <div className={`p-4 ${headerColor} flex items-center justify-center h-20 shadow-md`}>
+                    <div className="flex items-center justify-center space-x-3">
+                        {/* Icon Container */}
+                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg">
+                            <Home className="w-6 h-6 text-green-900 font-bold" />
+                        </div>
+                        
+                        {/* Text Logo */}
+                        <div className="flex flex-col">
+                            <span className="text-xl font-extrabold tracking-wider text-white">
+                                HOA
+                            </span>
+                            <span className="text-sm font-semibold tracking-widest text-green-200 -mt-1">
+                                MANAGEMENT
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -141,7 +135,7 @@ const Layout = () => {
                         label="Calendar"
                     />
 
-                    {/* --- Accounting Dropdown --- */}
+                    {/* Accounting Dropdown */}
                     <div className="pt-2">
                         <button
                             onClick={() => setIsAccountingOpen(!isAccountingOpen)}
@@ -156,13 +150,11 @@ const Layout = () => {
                         
                         {isAccountingOpen && (
                             <div className="ml-4 mt-1 space-y-1 border-l border-green-600 pl-3">
-                                {/* Contribution */}
                                 <SidebarLink 
                                     to="/accounting/contribution"
                                     icon={<ArrowRightCircle className="w-4 h-4 text-green-400" />}
                                     label="Contribution"
                                 />
-                                {/* Expenses */}
                                 <SidebarLink 
                                     to="/accounting/expenses"
                                     icon={<ArrowRightCircle className="w-4 h-4 text-green-400" />}
@@ -178,14 +170,12 @@ const Layout = () => {
                         label="Members"
                     />
 
-                    {/* Folders */}
                     <SidebarLink 
                         to="/folder"
                         icon={<Folder className="w-5 h-5" />}
                         label="Folders"
                     />
                     
-                    {/* Complaints (WITH REALTIME BADGE COUNT) */}
                     <SidebarLink 
                         to="/complaints"
                         icon={<ClipboardList className="w-5 h-5" />}
@@ -193,21 +183,18 @@ const Layout = () => {
                         badgeCount={newComplaintsCount} 
                     />
 
-                    {/* Posting */}
                     <SidebarLink 
                         to="/posting"
                         icon={<Image className="w-5 h-5" />}
                         label="Posting"
                     />
                     
-                    {/* HOA Officials */}
                     <SidebarLink 
                         to="/officials"
                         icon={<ClipboardCheck className="w-5 h-5" />}
                         label="HOA Officials"
                     />
                     
-                    {/* Election Module */}
                     <SidebarLink 
                         to="/election"
                         icon={<Archive className="w-5 h-5" />}

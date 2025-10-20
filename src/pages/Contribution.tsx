@@ -1107,7 +1107,7 @@ export default function Contribution() {
         
         {/* Contribution Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-bold">Contribution</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Contribution</h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -1218,7 +1218,7 @@ export default function Contribution() {
           {/* Contribution Table */}
           <div className="overflow-x-auto border rounded-lg shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-object text-white">
                 <tr>
                   {[
                     "Acc. No.",
@@ -1232,7 +1232,7 @@ export default function Contribution() {
                   ].map((header) => (
                     <th
                       key={header}
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                      className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider"
                     >
                       {header}
                     </th>
@@ -1242,7 +1242,7 @@ export default function Contribution() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-6 text-gray-500">
+                    <td colSpan={8} className="text-center py-6 text-gray-50">
                       <FiRefreshCw className="animate-spin inline-block mr-2 w-4 h-4 text-[#125648]" />
                       Loading records...
                     </td>

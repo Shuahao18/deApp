@@ -4,6 +4,8 @@ import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addD
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Plus, MoreVertical, Edit2, X } from 'lucide-react';
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 
 // --- INTERFACES ---
 interface Official {
@@ -36,7 +38,7 @@ interface AdminUser {
     name: string;
     email: string;
     role: string;
-    position: string; // Fixed value for executive officers
+    position: string;
     contactNo?: string;
     termDuration?: string;
     photoURL?: string;
@@ -81,14 +83,11 @@ interface TabContentProps extends HOABoardContentProps, CommitteeContentProps {
 
 // --- CONSTANTS ---
 const HOA_POSITIONS = ["President", "Vice President", "Secretary", "Treasurer"];
-
-// Add these new constants for Board of Directors and Committee Officers
 const BOARD_OF_DIRECTORS_POSITIONS = [
     "Chairman of the Board",
     "Vice Chairman of the Board", 
     "Board Member"
 ];
-
 const COMMITTEE_OFFICERS_POSITIONS = [
     "Auditing and Inventory Committee",
     "Financial Management Committee",
@@ -122,7 +121,7 @@ const syncToAdminCollection = async (userData: Partial<Official | CommitteeMembe
             name: userData.name || '',
             email: userData.email || '',
             role: 'Admin',
-            position: 'Executive Officer', // Fixed position for all executive officers
+            position: 'Executive Officer',
             contactNo: userData.contactNo || '',
             termDuration: userData.termDuration || '',
             photoURL: userData.photoURL || '',
@@ -493,14 +492,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                         )}
                     </div>
 
-                    {isExecutiveOfficer && (
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                            <p className="text-sm text-blue-700 font-medium">
-                                ⓘ Executive Officer: This user will be automatically added to the Admin collection with "Admin" role and "Executive Officer" position.
-                            </p>
-                        </div>
-                    )}
-
                     <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">
                             Cancel
@@ -576,13 +567,11 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
 
         const { name, value } = e.target;
         
-        // Check for Chairman of the Board for board_of_directors
         if (collectionPath === "board_of_directors" && name === "position" && value === "Chairman of the Board" && headExists) {
             setError("Only one 'Chairman of the Board' is allowed per board.");
             return;
         }
         
-        // Check for Committee Head for other committees
         if (collectionPath !== "board_of_directors" && name === "position" && value === "Committee Head" && headExists) {
             setError("Only one 'Committee Head' is allowed per committee.");
             return;
@@ -645,14 +634,12 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                 return;
             }
             
-            // Check for Chairman of the Board restriction
             if (collectionPath === "board_of_directors" && dataToAdd.position === "Chairman of the Board" && headExists) {
                 setError("A 'Chairman of the Board' already exists for this board. Please select another position or edit the existing chairman.");
                 setIsAdding(false);
                 return;
             }
             
-            // Check for Committee Head restriction
             if (collectionPath !== "board_of_directors" && dataToAdd.position === "Committee Head" && headExists) {
                 setError("A 'Committee Head' already exists for this committee. Please select another position or edit the existing head.");
                 setIsAdding(false);
@@ -1167,10 +1154,8 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                     } as CommitteeMember);
                 });
 
-                // Custom sorting based on collection type
                 const sortedMembers = membersList.sort((a, b) => {
                     if (collectionPath === "board_of_directors") {
-                        // Sort Board of Directors: Chairman > Vice Chairman > Board Member > alphabetically
                         const positionOrder = ["Chairman of the Board", "Vice Chairman of the Board", "Board Member"];
                         const aIndex = positionOrder.indexOf(a.position);
                         const bIndex = positionOrder.indexOf(b.position);
@@ -1179,7 +1164,6 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                         if (aIndex > -1) return -1;
                         if (bIndex > -1) return 1;
                     } else if (collectionPath === "committee_officers") {
-                        // Sort Committee Officers by committee name alphabetically
                         const committeeOrder = [
                             "Auditing and Inventory Committee",
                             "Election Committee", 
@@ -1195,7 +1179,6 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                         if (aIndex > -1) return -1;
                         if (bIndex > -1) return 1;
                     } else {
-                        // Original logic for other committees
                         if (a.position === "Committee Head" && b.position !== "Committee Head") return -1;
                         if (a.position !== "Committee Head" && b.position === "Committee Head") return 1;
                     }
@@ -1248,11 +1231,11 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">{formatCommitteeName(committeeName)} Members</h2>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">{formatCommitteeName(committeeName)}</h2>
                 <button
                     onClick={() => setIsAddModalOpen(true)}
-                    className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors shadow-md"
+                    className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-md"
                 >
                     <Plus className="w-4 h-4 mr-1" /> Add Member
                 </button>
@@ -1263,58 +1246,96 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                     <p className="col-span-full p-4 text-gray-500">Loading members...</p>
                 ) : members.length > 0 ? (
                     members.map((m, index) => (
-                        <div key={m.id} className="bg-white shadow-lg rounded-xl overflow-hidden flex flex-col">
-                            <div className="h-40 bg-gray-200 flex items-center justify-center">
+                        <div key={m.id} className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-xl transition-shadow duration-300">
+                            <div className="h-48 bg-gradient-to-br from-green-600 to-green-800 relative">
                                 {m.photoURL ? (
                                     <img src={m.photoURL} alt={m.name} className="w-full h-full object-cover" />
                                 ) : (
-                                    <span className="text-gray-600 font-medium">Profile Image</span>
+                                    <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                        <UserCircleIcon className="h-16 w-16 text-gray-400" />
+                                    </div>
                                 )}
-                            </div>
-                            <div className={`p-4 relative flex-grow ${m.position === "Chairman of the Board" || m.position === "Committee Head" ? 'bg-green-700 text-white' : 'bg-green-800 text-white'}`}>
-
-                                <div className="absolute top-2 right-2">
+                                
+                                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-2">
+                                    <p className="text-sm font-semibold text-center truncate">{m.position}</p>
+                                </div>
+                                
+                                <div className="absolute top-3 right-3">
                                     <button
-                                        className="text-white hover:text-gray-300"
-                                        onClick={(e) => { e.stopPropagation(); setOpenMenuIndex(openMenuIndex === index ? null : index); }}
+                                        className="bg-white bg-opacity-90 rounded-full p-1 hover:bg-opacity-100 transition-all"
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            setOpenMenuIndex(openMenuIndex === index ? null : index); 
+                                        }}
                                     >
-                                        <MoreVertical size={20} />
+                                        <MoreVertical size={16} className="text-gray-700" />
                                     </button>
 
                                     {openMenuIndex === index && (
-                                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 text-gray-800">
+                                        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-xl py-1 z-10 text-gray-800 border border-gray-200">
                                             <button
                                                 onClick={() => handleEditMemberClick(m)}
-                                                className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100"
+                                                className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50"
                                             >
-                                                <Edit2 className="w-4 h-4 mr-2" /> Edit Member
+                                                <Edit2 className="w-4 h-4 mr-2" /> Edit
                                             </button>
                                             <button
                                                 onClick={() => handleDelete(m)}
                                                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                                             >
-                                                <span className="w-4 h-4 mr-2">🗑️</span> Delete Member
+                                                <span className="w-4 h-4 mr-2">🗑️</span> Delete
                                             </button>
                                         </div>
                                     )}
                                 </div>
-
-                                <p className="text-lg font-bold truncate">{m.name}</p>
-                                <p className="font-semibold border-b border-green-500/50 pb-1 mb-2">{m.position}</p>
-                                <p className="text-sm"><span className="font-medium">Contact:</span> {m.contactNo || 'N/A'}</p>
-                                <p className="text-sm truncate"><span className="font-medium">Email:</span> {m.email || 'N/A'}</p>
-                                <p className="text-sm"><span className="font-medium">Address:</span> {m.address || 'N/A'}</p>
-                                <p className="text-sm"><span className="font-medium">Term:</span> {m.termDuration || 'N/A'}</p>
-                                {m.authUid ? (
-                                    <p className="text-xs font-semibold text-yellow-300 mt-1">✓ Login Account Linked</p>
-                                ) : (
-                                    <p className="text-xs font-semibold text-red-300 mt-1">✗ No Login Account</p>
-                                )}
+                            </div>
+                            
+                            <div className="p-4">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2 truncate">{m.name}</h3>
+                                
+                                <div className="space-y-2 text-sm text-gray-600">
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Contact:</span>
+                                        <span className="flex-1">{m.contactNo || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Email:</span>
+                                        <span className="flex-1 truncate">{m.email || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Address:</span>
+                                        <span className="flex-1 line-clamp-2">{m.address || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Term:</span>
+                                        <span className="flex-1">{m.termDuration || 'N/A'}</span>
+                                    </div>
+                                </div>
+                                
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                    {m.authUid ? (
+                                        <div className="flex items-center text-green-600 text-xs font-semibold">
+                                            <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
+                                            ✓ Login Account Linked
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center text-red-500 text-xs font-semibold">
+                                            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                                            ✗ No Login Account
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     ))
                 ) : (
-                    <p className="col-span-full p-4 text-gray-500">No members found for the {formatCommitteeName(committeeName)}. Click "Add Member" to add one.</p>
+                    <div className="col-span-full text-center py-12">
+                        <div className="text-gray-400 mb-4">
+                            <UserCircleIcon className="h-16 w-16 mx-auto" />
+                        </div>
+                        <p className="text-gray-500 text-lg mb-2">No members found</p>
+                        <p className="text-gray-400 text-sm">Click "Add Member" to add the first member</p>
+                    </div>
                 )}
             </div>
 
@@ -1340,69 +1361,118 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
 const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEditClick, handleDeleteClick, handleAddNewOfficial, openMenuIndex, setOpenMenuIndex }) => {
     return (
         <div>
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Elected HOA Board Officials</h2>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Executive Board Members</h2>
                 <button
                     onClick={handleAddNewOfficial}
-                    className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors shadow-md"
+                    className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-md"
                 >
                     <Plus className="w-4 h-4 mr-1" /> Add Board Member
                 </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {officials.length > 0 ? (
                     officials.map((o, index) => (
-                        <div key={o.id} className="flex items-center bg-white shadow-md rounded-xl overflow-hidden">
-                            <div className="w-1/3 bg-gray-200 h-40 flex items-center justify-center">
+                        <div key={o.id} className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-xl transition-shadow duration-300">
+                            {/* Profile Image Section */}
+                            <div className="h-48 bg-gradient-to-br from-green-600 to-green-800 relative">
                                 {o.photoURL ? (
-                                    <img src={o.photoURL} alt={o.name} className="w-full h-full object-cover" />
+                                    <img 
+                                        src={o.photoURL} 
+                                        alt={o.name} 
+                                        className="w-full h-full object-cover" 
+                                    />
                                 ) : (
-                                    <span className="text-gray-600 font-medium text-xs text-center">No Image</span>
+                                    <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                        <UserCircleIcon className="h-16 w-16 text-gray-400" />
+                                    </div>
                                 )}
-                            </div>
-                            <div className="w-2/3 bg-green-800 text-white p-4 relative">
-                                <div className="absolute top-2 right-2">
+                                
+                                {/* Position Badge */}
+                                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-2">
+                                    <p className="text-sm font-semibold text-center truncate">{o.position}</p>
+                                </div>
+                                
+                                {/* Menu Button */}
+                                <div className="absolute top-3 right-3">
                                     <button
-                                        className="text-white hover:text-gray-300"
-                                        onClick={(e) => { e.stopPropagation(); setOpenMenuIndex(openMenuIndex === index ? null : index); }}
+                                        className="bg-white bg-opacity-90 rounded-full p-1 hover:bg-opacity-100 transition-all"
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            setOpenMenuIndex(openMenuIndex === index ? null : index); 
+                                        }}
                                     >
-                                        <MoreVertical />
+                                        <MoreVertical size={16} className="text-gray-700" />
                                     </button>
 
                                     {openMenuIndex === index && (
-                                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 text-gray-800">
+                                        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-xl py-1 z-10 text-gray-800 border border-gray-200">
                                             <button
                                                 onClick={() => handleEditClick(o)}
-                                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                                className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50"
                                             >
-                                                <Edit2 className="w-4 h-4 mr-2" /> Edit Official
+                                                <Edit2 className="w-4 h-4 mr-2" /> Edit
                                             </button>
                                             <button
                                                 onClick={() => handleDeleteClick(o)}
                                                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                                             >
-                                                <span className="w-4 h-4 mr-2">🗑️</span> Delete Official
+                                                <span className="w-4 h-4 mr-2">🗑️</span> Delete
                                             </button>
                                         </div>
                                     )}
                                 </div>
-
-                                <p className="text-lg font-bold truncate">{o.name}</p>
-                                <p className="font-semibold border-b border-green-500/50 pb-1 mb-2">{o.position}</p>
-                                <p className="text-sm"><span className="font-medium">Contact:</span> {o.contactNo || 'N/A'}</p>
-                                <p className="text-sm truncate"><span className="font-medium">Email:</span> {o.email || 'N/A'}</p>
-                                <p className="text-sm"><span className="font-medium">Address:</span> {o.address || 'N/A'}</p>
-                                <p className="text-sm"><span className="font-medium">Term:</span> {o.termDuration || 'N/A'}</p>
-                                {o.authUid ? (
-                                    <p className="text-xs font-semibold text-yellow-300 mt-1">✓ Login Account Linked</p>
-                                ) : (
-                                    <p className="text-xs font-semibold text-red-300 mt-1">✗ No Login Account</p>
-                                )}
+                            </div>
+                            
+                            {/* Information Section */}
+                            <div className="p-4">
+                                <h3 className="text-lg font-bold text-gray-800 mb-2 truncate">{o.name}</h3>
+                                
+                                <div className="space-y-2 text-sm text-gray-600">
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Contact:</span>
+                                        <span className="flex-1">{o.contactNo || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Email:</span>
+                                        <span className="flex-1 truncate">{o.email || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Address:</span>
+                                        <span className="flex-1 line-clamp-2">{o.address || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex items-start">
+                                        <span className="font-medium w-20 flex-shrink-0">Term:</span>
+                                        <span className="flex-1">{o.termDuration || 'N/A'}</span>
+                                    </div>
+                                </div>
+                                
+                                {/* Account Status */}
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                    {o.authUid ? (
+                                        <div className="flex items-center text-green-600 text-xs font-semibold">
+                                            <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
+                                            ✓ Login Account Linked
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center text-red-500 text-xs font-semibold">
+                                            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                                            ✗ No Login Account
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     ))
                 ) : (
-                    <p className="p-4 text-gray-500">No elected officials found. Click "Add Board Member" to add one.</p>
+                    <div className="col-span-full text-center py-12">
+                        <div className="text-gray-400 mb-4">
+                            <UserCircleIcon className="h-16 w-16 mx-auto" />
+                        </div>
+                        <p className="text-gray-500 text-lg mb-2">No executive officials found</p>
+                        <p className="text-gray-400 text-sm">Click "Add Board Member" to add the first official</p>
+                    </div>
                 )}
             </div>
         </div>
@@ -1436,6 +1506,16 @@ export default function OffHoa() {
     const [officialToEdit, setOfficialToEdit] = useState<Official | null>(null);
     const [officialToAdd, setOfficialToAdd] = useState<boolean>(false);
     const [activeTab, setActiveTab] = useState<TabKey>("Executive officers");
+
+    const navigate = useNavigate();
+
+    const handleAdminClick = () => {
+        navigate('/EditModal');
+    };
+
+    const handleDashboardClick = () => {
+        navigate('/Dashboard');
+    };
 
     useEffect(() => {
         if (!db) return;
@@ -1516,56 +1596,87 @@ export default function OffHoa() {
     const tabs: TabKey[] = ["Executive officers", "Board of Directors", "Committee officers"];
 
     return (
-        <div className="bg-gray-50 min-h-screen">
-            <div className="bg-teader p-6">
-                <h1 className="text-2xl text-white font-semibold">HOA Officials</h1>
-            </div>
-            <div className="border-b border-gray-200 mb-6 ">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    {tabs.map((tab) => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`
-                                whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors
-                                ${
-                                    activeTab === tab
-                                        ? "border-green-600 text-green-600"
-                                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                                }
-                            `}
-                        >
-                            {tab}
-                        </button>
-                    ))}
-                </nav>
-            </div>
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+            {/* IMPROVED HEADER */}
+            <header className="w-full bg-gradient-to-r from-green-700 to-green-800 text-white shadow-lg">
+                <div className="container mx-auto px-6 py-4">
+                    <div className="flex justify-between items-center">
+                        {/* Left Side - Title */}
+                        <div className="flex items-center space-x-4">
+                            <h1 className="text-xl font-bold font-Montserrat">HOA Officials</h1>
+                        </div>
 
-            <div className="bg-white p-6 shadow-xl rounded-lg">
-                <TabContent
-                    tab={activeTab}
-                    officials={officials}
-                    handleEditClick={handleEditClick}
-                    handleDeleteClick={handleDeleteClick}
-                    handleAddNewOfficial={handleAddNewOfficial}
-                    openMenuIndex={openMenuIndex}
-                    setOpenMenuIndex={setOpenMenuIndex}
-                    committeeName={activeTab === "Executive officers" ? "" : activeTab}
-                    collectionPath={activeTab === "Executive officers" ? "" : (COMMITTEE_COLLECTIONS[activeTab] || "")}
-                />
-            </div>
+                        {/* Center - Empty for balance */}
+                        <div className="flex-1"></div>
 
-            {(officialToEdit || officialToAdd) && (
-                <EditOfficialModal
-                    official={officialToEdit}
-                    isAddingNew={officialToAdd}
-                    isExecutiveOfficer={activeTab === "Executive officers"}
-                    onClose={() => {
-                        setOfficialToEdit(null);
-                        setOfficialToAdd(false);
-                    }}
-                />
-            )}
+                        {/* Right Side - User Actions */}
+                        <div className="flex items-center space-x-4">
+                            <button 
+                                className="flex items-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg transition-all duration-200"
+                                onClick={handleAdminClick}
+                            >
+                                <UserCircleIcon className="h-5 w-5" />
+                                <span className="text-sm font-medium">Admin Panel</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            {/* MAIN CONTENT */}
+            <div className="flex-1 overflow-auto py-6">
+                <div className="container mx-auto px-6">
+                    {/* ENHANCED TABS */}
+                    <div className="bg-white rounded-xl shadow-sm p-1 mb-8 border border-gray-200">
+                        <nav className="flex">
+                            {tabs.map((tab) => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`
+                                        flex-1 py-3 px-4 text-center font-medium text-sm transition-all duration-200 rounded-lg mx-1
+                                        ${
+                                            activeTab === tab
+                                                ? "bg-green-600 text-white shadow-md"
+                                                : "text-gray-600 hover:text-green-700 hover:bg-gray-100"
+                                        }
+                                    `}
+                                >
+                                    {tab}
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    {/* CONTENT AREA */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                        <TabContent
+                            tab={activeTab}
+                            officials={officials}
+                            handleEditClick={handleEditClick}
+                            handleDeleteClick={handleDeleteClick}
+                            handleAddNewOfficial={handleAddNewOfficial}
+                            openMenuIndex={openMenuIndex}
+                            setOpenMenuIndex={setOpenMenuIndex}
+                            committeeName={activeTab === "Executive officers" ? "" : activeTab}
+                            collectionPath={activeTab === "Executive officers" ? "" : (COMMITTEE_COLLECTIONS[activeTab] || "")}
+                        />
+                    </div>
+
+                    {/* MODAL */}
+                    {(officialToEdit || officialToAdd) && (
+                        <EditOfficialModal
+                            official={officialToEdit}
+                            isAddingNew={officialToAdd}
+                            isExecutiveOfficer={activeTab === "Executive officers"}
+                            onClose={() => {
+                                setOfficialToEdit(null);
+                                setOfficialToAdd(false);
+                            }}
+                        />
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

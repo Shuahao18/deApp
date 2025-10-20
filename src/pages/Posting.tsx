@@ -5,6 +5,8 @@ import { db, auth, storage } from "../Firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL, deleteObject, uploadBytesResumable,
 } from "firebase/storage";
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 
 // 🌟 UPDATE: Added authorPhotoURL for author image stability 🌟
 interface Post {
@@ -143,6 +145,18 @@ export default function App() {
     const [userReactions, setUserReactions] = useState<Record<string, boolean>>({});
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // 🌟 NEW: Navigation hook
+    const navigate = useNavigate();
+
+    // 🌟 NEW: Navigation handlers
+    const handleAdminClick = () => {
+        navigate('/EditModal');
+    };
+
+    const handleDashboardClick = () => {
+        navigate('/Dashboard');
+    };
 
     // 🌟 NEW: Function to save user profiles 🌟
     const saveUserProfile = async (user: any, additionalData = {}) => {
@@ -389,36 +403,53 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        const q = query(collection(db, "posts"), orderBy("pinned", "desc"), orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const fetchedPosts = snapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-            })) as Post[];
-            console.log("📮 Fetched posts:", fetchedPosts);
-            setPosts(fetchedPosts);
+    const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
 
-            // Check user reactions for all posts
-            if (user) {
-                const newUserReactions: Record<string, boolean> = {};
-                
-                for (const post of fetchedPosts) {
-                    if (post.id) {
-                        try {
-                            const reactDoc = await getDoc(doc(db, "posts", post.id, "reacts", user.uid));
-                            newUserReactions[post.id] = reactDoc.exists();
-                        } catch (error) {
-                            console.error(`Error checking reaction for post ${post.id}:`, error);
-                            newUserReactions[post.id] = false;
-                        }
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const fetchedPosts = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+        })) as Post[];
+        
+        console.log("📮 Fetched posts:", fetchedPosts);
+        
+        // 🌟 NEW: Sort posts - pinned posts first, then by creation date
+        const sortedPosts = fetchedPosts.sort((a, b) => {
+            // If both are pinned or both are not pinned, sort by createdAt
+            if (a.pinned === b.pinned) {
+                return b.createdAt?.toDate() - a.createdAt?.toDate();
+            }
+            // If a is pinned and b is not, a comes first
+            if (a.pinned && !b.pinned) {
+                return -1;
+            }
+            // If b is pinned and a is not, b comes first
+            return 1;
+        });
+        
+        setPosts(sortedPosts);
+
+        // Check user reactions for all posts
+        if (user) {
+            const newUserReactions: Record<string, boolean> = {};
+            
+            for (const post of sortedPosts) {
+                if (post.id) {
+                    try {
+                        const reactDoc = await getDoc(doc(db, "posts", post.id, "reacts", user.uid));
+                        newUserReactions[post.id] = reactDoc.exists();
+                    } catch (error) {
+                        console.error(`Error checking reaction for post ${post.id}:`, error);
+                        newUserReactions[post.id] = false;
                     }
                 }
-                
-                setUserReactions(newUserReactions);
             }
-        });
-        return () => unsubscribe();
-    }, [user]);
+            
+            setUserReactions(newUserReactions);
+        }
+    });
+    return () => unsubscribe();
+}, [user]);
 
     useEffect(() => {
         if (!selectedReactPostId || !user) return;
@@ -877,448 +908,475 @@ export default function App() {
     };
 
     return (
-        <div className="bg-teader p-6 h-20 "> 
-            <h1 className="text-2xl text-white font-semibold">HOA Officials</h1>
-        
-            <div className="flex flex-col lg:flex-row m-8 gap-6 bg-gray-100 min-h-screen ">
-                {/* Left Column - Posts */}
-                <div className="flex flex-col w-full lg:w-2/3">
-                    
+        <div className="min-h-screen bg-gray-100 flex flex-col">
+            {/* 🌟 NEW: TOP HEADER - HOA Officials Header */}
+            <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+                
+                {/* HOA Officials Title - Left Side */}
+                <div className="flex items-center space-x-4">
+                    <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Posting</h1>
+                </div>
 
-                    {posts.length === 0 && (
-                        <div className="text-gray-500 text-center mt-8">No posts yet</div>
-                    )}
+                {/* Empty Center for Balance */}
+                <div className="flex-1"></div>
 
-                    {posts.map((post) => (
-                        <div key={post.id} className="bg-white p-4 rounded shadow mb-4">
-                            {/* Post Header */}
-                            <div className="flex items-start justify-between">
-                                <div className="flex items-center gap-3">
-                                    <ProfileImage
-                                        src={post.authorPhotoURL}
-                                        alt={post.authorName}
-                                        className="rounded-full w-10 h-10 object-cover"
-                                        fallbackText={post.authorName}
-                                    />
-                                    <div className="flex flex-col">
-                                        <p className="font-semibold text-gray-800">
-                                            {post.authorName}
-                                            {post.pinned && (
-                                                <span className="ml-2 px-2 py-0.5 text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
-                                                    PINNED
-                                                </span>
-                                            )}
-                                        </p>
-                                        <span className="text-xs text-gray-500">
-                                            {getRelativeTime(post.createdAt)}
-                                        </span>
+                {/* Profile/User Icon on the Right */}
+                <div className="flex items-center space-x-3">
+                    <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+                        <ShareIcon className="h-5 w-5" /> 
+                    </button>
+
+                    {/* ADMIN BUTTON: Navigation Handler */}
+                    <div 
+                        className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+                        onClick={handleAdminClick} 
+                    >
+                        <UserCircleIcon className="h-8 w-8 text-white" />
+                        <span className="text-sm font-medium hidden sm:inline">Admin</span>
+                    </div>
+                </div>
+            </header>
+
+            {/* MAIN CONTENT */}
+            <div className="flex-1 overflow-auto">
+                <div className="flex flex-col lg:flex-row m-8 gap-6 bg-gray-100 min-h-screen">
+                    {/* Left Column - Posts */}
+                    <div className="flex flex-col w-full lg:w-2/3">
+                        {posts.length === 0 && (
+                            <div className="text-gray-500 text-center mt-8">No posts yet</div>
+                        )}
+
+                        {posts.map((post) => (
+                            <div key={post.id} className="bg-white p-4 rounded shadow mb-4">
+                                {/* Post Header */}
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <ProfileImage
+                                            src={post.authorPhotoURL}
+                                            alt={post.authorName}
+                                            className="rounded-full w-10 h-10 object-cover"
+                                            fallbackText={post.authorName}
+                                        />
+                                        <div className="flex flex-col">
+                                            <p className="font-semibold text-gray-800">
+                                                {post.authorName}
+                                                {post.pinned && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs font-medium text-blue-800 bg-blue-100 rounded-full">
+                                                        PINNED
+                                                    </span>
+                                                )}
+                                            </p>
+                                            <span className="text-xs text-gray-500">
+                                                {getRelativeTime(post.createdAt)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span className="text-sm text-gray-500 capitalize px-2 py-1 bg-gray-200 rounded">
+                                        {post.category}
+                                    </span>
+                                </div>
+
+                                {/* Post Content */}
+                                <p className="mt-5 text-gray-700 font-mono text-sm whitespace-pre-line">
+                                    {post.content}
+                                </p>
+
+                                {/* Render media content based on type */}
+                                {renderMediaContent(post)}
+
+                                {/* Reactions and Comments Count */}
+                                <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+                                    <div className="flex items-center gap-1 cursor-pointer hover:underline" onClick={() => openReactsModal(post.id!)}>
+                                        <span>{post.reactsCount}</span>
+                                        <span>Reacts</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 cursor-pointer hover:underline" onClick={() => handleViewComments(post.id!)}>
+                                        <span>{post.commentsCount}</span>
+                                        <span>Comment</span>
                                     </div>
                                 </div>
-                                <span className="text-sm text-gray-500 capitalize px-2 py-1 bg-gray-200 rounded">
-                                    {post.category}
-                                </span>
-                            </div>
 
-                            {/* Post Content */}
-                            <p className="mt-3 text-gray-700 whitespace-pre-line">
-                                {post.content}
-                            </p>
-
-                            {/* Render media content based on type */}
-                            {renderMediaContent(post)}
-
-                            {/* Reactions and Comments Count */}
-                            <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
-                                <div className="flex items-center gap-1 cursor-pointer hover:underline" onClick={() => openReactsModal(post.id!)}>
-                                    <span>{post.reactsCount}</span>
-                                    <span>Reacts</span>
-                                </div>
-                                <div className="flex items-center gap-1 cursor-pointer hover:underline" onClick={() => handleViewComments(post.id!)}>
-                                    <span>{post.commentsCount}</span>
-                                    <span>Comment</span>
-                                </div>
-                            </div>
-
-                            {/* Post Actions - IMPROVED BUTTONS */}
-                            <div className="flex gap-1 mt-2 border-t pt-3 justify-around">
-                                {/* IMPROVED React Button with HIGHLIGHT when liked */}
-                                <button
-                                    className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg transition-all duration-200 border ${
-                                        userReactions[post.id!] 
-                                            ? 'bg-blue-100 border-blue-300 text-blue-700' 
-                                            : 'border-transparent hover:border-blue-200 hover:bg-blue-50 text-blue-600'
-                                    }`}
-                                    onClick={() => handleToggleReact(post.id!)}
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        viewBox="0 0 24 24"
-                                        fill={userReactions[post.id!] ? "currentColor" : "none"}
-                                        stroke="currentColor"
-                                        strokeWidth={userReactions[post.id!] ? 0 : 1.5}
-                                        className={`w-5 h-5 ${userReactions[post.id!] ? 'text-blue-600' : 'text-[#464646]'}`}
-                                    >
-                                        <path d="M7.493 18.75c-.425 0-.82-.236-.975-.632A7.48 7.48 0 016 15.375c0-1.75.599-3.358 1.602-4.634.151-.192.373-.309.6-.397.473-.183.89-.514 1.212-.924a9.042 9.042 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75 2.25 2.25 0 012.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H14.23c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23h-.777zM2.331 10.977a11.969 11.969 0 00-.831 4.398 12 12 0 00.52 3.507c.26.85 1.084 1.368 1.973 1.368H4.9c.445 0 .72-.498.523-.898a8.963 8.963 0 01-.924-3.977c0-1.708.476-3.305 1.302-4.666.245-.403-.028-.959-.5-.959H4.25c-.832 0-1.612.453-1.918 1.227z" />
-                                    </svg>
-                                    <span className={`text-sm font-medium ${userReactions[post.id!] ? 'text-blue-700' : 'text-[#919596]'}`}>
-                                        {userReactions[post.id!] ? 'Liked' : 'Like'}
-                                    </span>
-                                </button>
-
-                                {/* IMPROVED Comment Button */}
-                                <button
-                                    className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-green-50 transition-all duration-200 border border-transparent hover:border-green-200"
-                                    onClick={() => handleViewComments(post.id!)}
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        viewBox="0 0 24 24"
-                                        fill="currentColor"
-                                        className="w-5 h-5 text-[#464646]"
-                                    >
-                                        <path
-                                            fillRule="evenodd"
-                                            d="M4.848 2.771A49.144 49.144 0 0112 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 01-3.476.383.39.39 0 00-.297.17l-2.755 4.133a.75.75 0 01-1.248 0l-2.755-4.133a.39.39 0 00-.297-.17 48.9 48.9 0 01-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97z"
-                                            clipRule="evenodd"
-                                        />
-                                    </svg>
-                                    <span className="text-sm font-medium text-[#919596]">Comment</span>
-                                </button>
-
-                                {/* Pin Post Button (Admin Only) */}
-                                {isAdmin && (
+                                {/* Post Actions - IMPROVED BUTTONS */}
+                                <div className="flex gap-1 mt-2 border-t pt-3 justify-around">
+                                    {/* IMPROVED React Button with HIGHLIGHT when liked */}
                                     <button
                                         className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg transition-all duration-200 border ${
-                                            post.pinned 
-                                                ? 'bg-blue-500 text-white hover:bg-blue-600 border-blue-500' 
-                                                : 'hover:bg-gray-50 border-transparent hover:border-gray-200 text-gray-700'
+                                            userReactions[post.id!] 
+                                                ? 'bg-blue-100 border-blue-300 text-blue-700' 
+                                                : 'border-transparent hover:border-blue-200 hover:bg-blue-50 text-blue-600'
                                         }`}
-                                        onClick={() => handlePinPost(post.id!, post.pinned || false)}
+                                        onClick={() => handleToggleReact(post.id!)}
                                     >
                                         <svg
                                             xmlns="http://www.w3.org/2000/svg"
-                                            fill={post.pinned ? "currentColor" : "none"}
                                             viewBox="0 0 24 24"
-                                            strokeWidth={1.5}
-                                            stroke={post.pinned ? "none" : "currentColor"}
-                                            className="w-5 h-5"
+                                            fill={userReactions[post.id!] ? "currentColor" : "none"}
+                                            stroke="currentColor"
+                                            strokeWidth={userReactions[post.id!] ? 0 : 1.5}
+                                            className={`w-5 h-5 ${userReactions[post.id!] ? 'text-blue-600' : 'text-[#464646]'}`}
                                         >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.514 48.514 0 0 1 11.186 0Z"
-                                            />
+                                            <path d="M7.493 18.75c-.425 0-.82-.236-.975-.632A7.48 7.48 0 016 15.375c0-1.75.599-3.358 1.602-4.634.151-.192.373-.309.6-.397.473-.183.89-.514 1.212-.924a9.042 9.042 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75 2.25 2.25 0 012.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H14.23c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23h-.777zM2.331 10.977a11.969 11.969 0 00-.831 4.398 12 12 0 00.52 3.507c.26.85 1.084 1.368 1.973 1.368H4.9c.445 0 .72-.498.523-.898a8.963 8.963 0 01-.924-3.977c0-1.708.476-3.305 1.302-4.666.245-.403-.028-.959-.5-.959H4.25c-.832 0-1.612.453-1.918 1.227z" />
                                         </svg>
-                                        <span className={`text-sm font-medium ${post.pinned ? 'text-white' : 'text-gray-700'}`}>
-                                            {post.pinned ? "Unpin" : "Pin"}
+                                        <span className={`text-sm font-medium ${userReactions[post.id!] ? 'text-blue-700' : 'text-[#919596]'}`}>
+                                            {userReactions[post.id!] ? 'Liked' : 'Like'}
                                         </span>
                                     </button>
-                                )}
-                                
-                                {/* Edit and Delete Buttons (Admin or Author Only) */}
-                                {(isAdmin || user?.uid === post.authorId) && (
-                                    <>
-                                        {/* Edit Post Button */}
+
+                                    {/* IMPROVED Comment Button */}
+                                    <button
+                                        className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-green-50 transition-all duration-200 border border-transparent hover:border-green-200"
+                                        onClick={() => handleViewComments(post.id!)}
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            viewBox="0 0 24 24"
+                                            fill="currentColor"
+                                            className="w-5 h-5 text-[#464646]"
+                                        >
+                                            <path
+                                                fillRule="evenodd"
+                                                d="M4.848 2.771A49.144 49.144 0 0112 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 01-3.476.383.39.39 0 00-.297.17l-2.755 4.133a.75.75 0 01-1.248 0l-2.755-4.133a.39.39 0 00-.297-.17 48.9 48.9 0 01-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97z"
+                                                clipRule="evenodd"
+                                            />
+                                        </svg>
+                                        <span className="text-sm font-medium text-[#919596]">Comment</span>
+                                    </button>
+
+                                    {/* Pin Post Button (Admin Only) */}
+                                    {isAdmin && (
                                         <button
-                                            className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-yellow-50 transition-all duration-200 border border-transparent hover:border-yellow-200"
-                                            onClick={() => openEditModal(post)}
+                                            className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg transition-all duration-200 border ${
+                                                post.pinned 
+                                                    ? 'bg-blue-500 text-white hover:bg-blue-600 border-blue-500' 
+                                                    : 'hover:bg-gray-50 border-transparent hover:border-gray-200 text-gray-700'
+                                            }`}
+                                            onClick={() => handlePinPost(post.id!, post.pinned || false)}
                                         >
                                             <svg
                                                 xmlns="http://www.w3.org/2000/svg"
+                                                fill={post.pinned ? "currentColor" : "none"}
                                                 viewBox="0 0 24 24"
-                                                fill="currentColor"
-                                                className="w-5 h-5 text-[#464646]"
+                                                strokeWidth={1.5}
+                                                stroke={post.pinned ? "none" : "currentColor"}
+                                                className="w-5 h-5"
                                             >
                                                 <path
-                                                    fillRule="evenodd"
-                                                    d="M12 6.75a5.25 5.25 0 016.775-5.025.75.75 0 01.313 1.248l-3.32 3.319c.063.475.276.934.641 1.299.365.365.824.578 1.3.64l3.318-3.319a.75.75 0 011.248.313 5.25 5.25 0 01-5.472 6.756c-1.018-.086-1.87.1-2.309.634L7.344 21.3A3.298 3.298 0 112.7 16.657l8.684-7.151c.533-.44.72-1.291.634-2.309A5.342 5.342 0 0112 6.75zM4.117 19.125a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75v-.008z"
-                                                    clipRule="evenodd"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.514 48.514 0 0 1 11.186 0Z"
                                                 />
                                             </svg>
-                                            <span className="text-sm font-medium text-[#919596]">Edit</span>
+                                            <span className={`text-sm font-medium ${post.pinned ? 'text-white' : 'text-gray-700'}`}>
+                                                {post.pinned ? "Unpin" : "Pin"}
+                                            </span>
                                         </button>
-                                        <button
-                                            className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-red-50 transition-all duration-200 border border-transparent hover:border-red-200"
-                                            onClick={() => handleDeletePost(post)}
-                                        >
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                viewBox="0 0 24 24"
-                                                fill="currentColor"
-                                                className="w-5 h-5 text-[#464646]"
+                                    )}
+                                    
+                                    {/* Edit and Delete Buttons (Admin or Author Only) */}
+                                    {(isAdmin || user?.uid === post.authorId) && (
+                                        <>
+                                            {/* Edit Post Button */}
+                                            <button
+                                                className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-yellow-50 transition-all duration-200 border border-transparent hover:border-yellow-200"
+                                                onClick={() => openEditModal(post)}
                                             >
-                                                <path
-                                                    fillRule="evenodd"
-                                                    d="M16.5 4.478v.227a48.816 48.816 0 013.878.512.75.75 0 11-.256 1.478l-.209-.035-1.005 13.07a3 3 0 01-2.991 2.77H8.084a3 3 0 01-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 01-.256-1.478A48.567 48.567 0 017.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a52.662 52.662 0 013.369 0c1.603.051 2.815 1.387 2.815 2.951zm-6.136-1.452a51.196 51.196 0 013.273 0C14.39 3.05 15 3.684 15 4.478v.113a49.488 49.488 0 00-6 0v-.113c0-.794.609-1.428 1.364-1.452zm-.355 5.945a.75.75 0 10-1.5.058l.347 9a.75.75 0 101.499-.058l-.346-9zm5.48.058a.75.75 0 10-1.498-.058l-.347 9a.75.75 0 001.5.058l.345-9z"
-                                                    clipRule="evenodd"
-                                                />
-                                            </svg>
-                                            <span className="text-sm font-medium text-[#919596]">Delete</span>
-                                        </button>
-                                    </>
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 24 24"
+                                                    fill="currentColor"
+                                                    className="w-5 h-5 text-[#464646]"
+                                                >
+                                                    <path
+                                                        fillRule="evenodd"
+                                                        d="M12 6.75a5.25 5.25 0 016.775-5.025.75.75 0 01.313 1.248l-3.32 3.319c.063.475.276.934.641 1.299.365.365.824.578 1.3.64l3.318-3.319a.75.75 0 011.248.313 5.25 5.25 0 01-5.472 6.756c-1.018-.086-1.87.1-2.309.634L7.344 21.3A3.298 3.298 0 112.7 16.657l8.684-7.151c.533-.44.72-1.291.634-2.309A5.342 5.342 0 0112 6.75zM4.117 19.125a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75v-.008z"
+                                                        clipRule="evenodd"
+                                                    />
+                                                </svg>
+                                                <span className="text-sm font-medium text-[#919596]">Edit</span>
+                                            </button>
+                                            <button
+                                                className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg hover:bg-red-50 transition-all duration-200 border border-transparent hover:border-red-200"
+                                                onClick={() => handleDeletePost(post)}
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 24 24"
+                                                    fill="currentColor"
+                                                    className="w-5 h-5 text-[#464646]"
+                                                >
+                                                    <path
+                                                        fillRule="evenodd"
+                                                        d="M16.5 4.478v.227a48.816 48.816 0 013.878.512.75.75 0 11-.256 1.478l-.209-.035-1.005 13.07a3 3 0 01-2.991 2.77H8.084a3 3 0 01-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 01-.256-1.478A48.567 48.567 0 017.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a52.662 52.662 0 013.369 0c1.603.051 2.815 1.387 2.815 2.951zm-6.136-1.452a51.196 51.196 0 013.273 0C14.39 3.05 15 3.684 15 4.478v.113a49.488 49.488 0 00-6 0v-.113c0-.794.609-1.428 1.364-1.452zm-.355 5.945a.75.75 0 10-1.5.058l.347 9a.75.75 0 101.499-.058l-.346-9zm5.48.058a.75.75 0 10-1.498-.058l-.347 9a.75.75 0 001.5.058l.345-9z"
+                                                        clipRule="evenodd"
+                                                    />
+                                                </svg>
+                                                <span className="text-sm font-medium text-[#919596]">Delete</span>
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+
+                                {/* IMPROVED Comments Section */}
+                                {selectedPostId === post.id && (
+                                    <div className="mt-3 border-t pt-3">
+                                        <h4 className="font-semibold mb-2 text-gray-800">Comments</h4>
+
+                                        {comments[post.id!]?.length ? (
+                                            <div className="space-y-3 max-h-80 overflow-y-auto">
+                                                {comments[post.id!].map((c) => (
+                                                    <div key={c.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                                        <ProfileImage
+                                                            src={c.photoURL}
+                                                            alt={c.authorName || "Commenter"}
+                                                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                                                            fallbackText={c.authorName}
+                                                        />
+                                                        <div className="flex-1 min-w-0">
+                                                            {/* Name at the top */}
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="font-semibold text-gray-800 text-sm">
+                                                                    {c.authorName || c.user}
+                                                                </span>
+                                                                <span className="text-xs text-gray-400">
+                                                                    {c.createdAt?.toDate
+                                                                        ? getRelativeTime(c.createdAt)
+                                                                        : ""}
+                                                                </span>
+                                                            </div>
+                                                            {/* Comment content below */}
+                                                            <p className="text-sm text-gray-700 break-words">
+                                                                {c.content || c.text}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-gray-500 text-center py-4">No comments yet</p>
+                                        )}
+
+                                        <div className="flex gap-2 mt-3">
+                                            <input
+                                                type="text"
+                                                placeholder="Write a comment..."
+                                                value={newComment}
+                                                onChange={(e) => setNewComment(e.target.value)}
+                                                className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+                                                onKeyPress={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        handleAddComment(post.id!);
+                                                    }
+                                                }}
+                                            />
+                                            <button
+                                                onClick={() => handleAddComment(post.id!)}
+                                                className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
+                                                disabled={!newComment.trim() || !user}
+                                            >
+                                                Post
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
+                        ))}
+                    </div>
 
-                            {/* IMPROVED Comments Section */}
-                            {selectedPostId === post.id && (
-                                <div className="mt-3 border-t pt-3">
-                                    <h4 className="font-semibold mb-2 text-gray-800">Comments</h4>
-
-                                    {comments[post.id!]?.length ? (
-                                        <div className="space-y-3 max-h-80 overflow-y-auto">
-                                            {comments[post.id!].map((c) => (
-                                                <div key={c.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                    <ProfileImage
-                                                        src={c.photoURL}
-                                                        alt={c.authorName || "Commenter"}
-                                                        className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                                                        fallbackText={c.authorName}
-                                                    />
-                                                    <div className="flex-1 min-w-0">
-                                                        {/* Name at the top */}
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <span className="font-semibold text-gray-800 text-sm">
-                                                                {c.authorName || c.user}
-                                                            </span>
-                                                            <span className="text-xs text-gray-400">
-                                                                {c.createdAt?.toDate
-                                                                    ? getRelativeTime(c.createdAt)
-                                                                    : ""}
-                                                            </span>
-                                                        </div>
-                                                        {/* Comment content below */}
-                                                        <p className="text-sm text-gray-700 break-words">
-                                                            {c.content || c.text}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm text-gray-500 text-center py-4">No comments yet</p>
-                                    )}
-
-                                    <div className="flex gap-2 mt-3">
-                                        <input
-                                            type="text"
-                                            placeholder="Write a comment..."
-                                            value={newComment}
-                                            onChange={(e) => setNewComment(e.target.value)}
-                                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                                            onKeyPress={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    handleAddComment(post.id!);
-                                                }
-                                            }}
-                                        />
-                                        <button
-                                            onClick={() => handleAddComment(post.id!)}
-                                            className="bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
-                                            disabled={!newComment.trim() || !user}
+                    {/* Right Column - Create Post */}
+                    {isAdmin && (
+                        <div className="w-full lg:w-1/3 bg-white rounded-lg shadow-lg h-fit border border-gray-200">
+                            {/* 🔹 Black Header */}
+                            <div className="bg-[#1e4643] text-white px-6 py-4 rounded-t-lg">
+                                <h2 className="text-lg font-semibold">Create post</h2>
+                            </div>
+                            
+                            <div className="p-4">
+                                <div className="flex items-center gap-3 mb-4">
+                                   
+                                    
+                                    <div className="flex items-center gap-2 ml-auto">
+                                        <select
+                                            value={selectedCategory}
+                                            onChange={(e) => setSelectedCategory(e.target.value)}
+                                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         >
-                                            Post
-                                        </button>
+                                            <option value="announcement">Announcement</option>
+                                            <option value="complaint">Complaint</option>
+                                            <option value="general">General</option>
+                                        </select>
+                                        <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 cursor-pointer transition-all duration-200 border border-gray-300">
+                                            <span className="text-lg">📎</span>
+                                            <span>Attach Files</span>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                onChange={handleFileChange}
+                                                ref={fileInputRef}
+                                                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                                            />
+                                        </label>
                                     </div>
                                 </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
 
-                {/* Right Column - Create Post */}
-                {isAdmin && (
-                    <div className="w-full lg:w-1/3 bg-white rounded-lg shadow-lg h-fit border border-gray-200">
-                        {/* 🔹 Black Header */}
-                        <div className="bg-object text-white px-6 py-4 rounded-t-lg">
-                            <h2 className="text-lg font-semibold">Create post</h2>
+                                {selectedFileName && (
+                                    <div className="text-sm text-gray-600 mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <strong>Selected file:</strong> {selectedFileName}
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    setFileToUpload(null);
+                                                    setSelectedFileName("");
+                                                    if (fileInputRef.current) fileInputRef.current.value = '';
+                                                }}
+                                                className="text-red-600 hover:text-red-800 transition-colors duration-200"
+                                            >
+                                                ✕ Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {isUploading && uploadProgress > 0 && (
+                                    <div className="mb-4">
+                                        <div className="flex justify-between text-sm text-gray-600 mb-1">
+                                            <span>Uploading...</span>
+                                            <span>{uploadProgress}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                            <div
+                                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                                style={{ width: `${uploadProgress}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <textarea
+                                    placeholder="Type a post"
+                                    value={content}
+                                    onChange={(e) => setContent(e.target.value)}
+                                    className="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 placeholder-gray-400 transition-all duration-200"
+                                    rows={6}
+                                    disabled={isUploading}
+                                />
+
+                                <div className="flex justify-end gap-2 mt-4 border-t pt-4">
+                                    <button
+                                        className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all duration-200 font-medium"
+                                        onClick={handleCancelPost}
+                                        disabled={isUploading}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleCreatePost}
+                                        disabled={isUploading || (!content.trim() && !fileToUpload)}
+                                        className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 ${
+                                            isUploading || (!content.trim() && !fileToUpload)
+                                                ? "bg-green-300 cursor-not-allowed text-white"
+                                                : "bg-green-600 hover:bg-green-700 text-white"
+                                        }`}
+                                    >
+                                        {isUploading ? "Uploading..." : "Upload"}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        
-                        <div className="p-4">
-                            <div className="flex items-center gap-3 mb-4">
-                               
+                    )}
+
+                    {/* Reacts Modal */}
+                    {showReactsModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg shadow-lg w-full max-w-sm mx-4 p-4">
+                                <div className="flex justify-between items-center border-b pb-2 mb-4">
+                                    <h3 className="font-bold text-lg">Reacts</h3>
+                                    <button
+                                        onClick={closeReactsModal}
+                                        className="text-gray-500 hover:text-gray-700 text-2xl transition-colors duration-200"
+                                    >
+                                        &times;
+                                    </button>
+                                </div>
+
+                                {reacts[selectedReactPostId!]?.length > 0 ? (
+                                    <div className="max-h-80 overflow-y-auto">
+                                        {reacts[selectedReactPostId!]?.map((r) => (
+                                            <div
+                                                key={r.id}
+                                                className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                                            >
+                                                <ProfileImage
+                                                    src={r.photoURL}
+                                                    alt={r.authorName}
+                                                    className="rounded-full w-8 h-8 object-cover"
+                                                    fallbackText={r.authorName}
+                                                />
+                                                <p className="font-semibold text-gray-800">
+                                                    {r.authorName || "HOA Official"}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-gray-500 text-center py-4">No reacts yet.</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Edit Post Modal */}
+                    {isEditing && editingPost && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4 p-6">
+                                <h3 className="font-bold text-xl mb-4 border-b pb-2">Edit Post</h3>
                                 
-                                <div className="flex items-center gap-2 ml-auto">
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                                     <select
-                                        value={selectedCategory}
-                                        onChange={(e) => setSelectedCategory(e.target.value)}
-                                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        value={editedCategory}
+                                        onChange={(e) => setEditedCategory(e.target.value)}
+                                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     >
                                         <option value="announcement">Announcement</option>
                                         <option value="complaint">Complaint</option>
                                         <option value="general">General</option>
                                     </select>
-                                    <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 cursor-pointer transition-all duration-200 border border-gray-300">
-                                        <span className="text-lg">📎</span>
-                                        <span>Attach Files</span>
-                                        <input
-                                            type="file"
-                                            className="hidden"
-                                            onChange={handleFileChange}
-                                            ref={fileInputRef}
-                                            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                                        />
-                                    </label>
                                 </div>
-                            </div>
 
-                            {selectedFileName && (
-                                <div className="text-sm text-gray-600 mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <strong>Selected file:</strong> {selectedFileName}
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setFileToUpload(null);
-                                                setSelectedFileName("");
-                                                if (fileInputRef.current) fileInputRef.current.value = '';
-                                            }}
-                                            className="text-red-600 hover:text-red-800 transition-colors duration-200"
-                                        >
-                                            ✕ Remove
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {isUploading && uploadProgress > 0 && (
                                 <div className="mb-4">
-                                    <div className="flex justify-between text-sm text-gray-600 mb-1">
-                                        <span>Uploading...</span>
-                                        <span>{uploadProgress}%</span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-2">
-                                        <div
-                                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                            style={{ width: `${uploadProgress}%` }}
-                                        ></div>
-                                    </div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
+                                    <textarea
+                                        value={editedContent}
+                                        onChange={(e) => setEditedContent(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                        rows={8}
+                                    />
                                 </div>
-                            )}
 
-                            <textarea
-                                placeholder="Type a post"
-                                value={content}
-                                onChange={(e) => setContent(e.target.value)}
-                                className="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 placeholder-gray-400 transition-all duration-200"
-                                rows={6}
-                                disabled={isUploading}
-                            />
-
-                            <div className="flex justify-end gap-2 mt-4 border-t pt-4">
-                                <button
-                                    className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all duration-200 font-medium"
-                                    onClick={handleCancelPost}
-                                    disabled={isUploading}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleCreatePost}
-                                    disabled={isUploading || (!content.trim() && !fileToUpload)}
-                                    className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 ${
-                                        isUploading || (!content.trim() && !fileToUpload)
-                                            ? "bg-green-300 cursor-not-allowed text-white"
-                                            : "bg-green-600 hover:bg-green-700 text-white"
-                                    }`}
-                                >
-                                    {isUploading ? "Uploading..." : "Upload"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Reacts Modal */}
-                {showReactsModal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-white rounded-lg shadow-lg w-full max-w-sm mx-4 p-4">
-                            <div className="flex justify-between items-center border-b pb-2 mb-4">
-                                <h3 className="font-bold text-lg">Reacts</h3>
-                                <button
-                                    onClick={closeReactsModal}
-                                    className="text-gray-500 hover:text-gray-700 text-2xl transition-colors duration-200"
-                                >
-                                    &times;
-                                </button>
-                            </div>
-
-                            {reacts[selectedReactPostId!]?.length > 0 ? (
-                                <div className="max-h-80 overflow-y-auto">
-                                    {reacts[selectedReactPostId!]?.map((r) => (
-                                        <div
-                                            key={r.id}
-                                            className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                                        >
-                                            <ProfileImage
-                                                src={r.photoURL}
-                                                alt={r.authorName}
-                                                className="rounded-full w-8 h-8 object-cover"
-                                                fallbackText={r.authorName}
-                                            />
-                                            <p className="font-semibold text-gray-800">
-                                                {r.authorName || "HOA Official"}
-                                            </p>
-                                        </div>
-                                    ))}
+                                <div className="flex justify-end gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setEditingPost(null);
+                                        }}
+                                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all duration-200 font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleEditPost}
+                                        disabled={!editedContent.trim()}
+                                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all duration-200 font-medium"
+                                    >
+                                        Save Changes
+                                    </button>
                                 </div>
-                            ) : (
-                                <p className="text-gray-500 text-center py-4">No reacts yet.</p>
-                            )}
-                        </div>
-                    </div>
-                )}
-                
-                {/* Edit Post Modal */}
-                {isEditing && editingPost && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4 p-6">
-                            <h3 className="font-bold text-xl mb-4 border-b pb-2">Edit Post</h3>
-                            
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                                <select
-                                    value={editedCategory}
-                                    onChange={(e) => setEditedCategory(e.target.value)}
-                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                >
-                                    <option value="announcement">Announcement</option>
-                                    <option value="complaint">Complaint</option>
-                                    <option value="general">General</option>
-                                </select>
-                            </div>
-
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
-                                <textarea
-                                    value={editedContent}
-                                    onChange={(e) => setEditedContent(e.target.value)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                                    rows={8}
-                                />
-                            </div>
-
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    onClick={() => {
-                                        setIsEditing(false);
-                                        setEditingPost(null);
-                                    }}
-                                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all duration-200 font-medium"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleEditPost}
-                                    disabled={!editedContent.trim()}
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all duration-200 font-medium"
-                                >
-                                    Save Changes
-                                </button>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     );

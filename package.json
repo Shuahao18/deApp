@@ -25,6 +25,8 @@
     "@electron-forge/maker-squirrel": "^6.2.1",
     "@electron-forge/maker-zip": "^6.2.1",
     "@electron-forge/plugin-webpack": "^6.2.1",
+    "@types/axios": "^0.9.36",
+    "@types/node": "^24.8.1",
     "@types/react": "^18.2.15",
     "@types/react-big-calendar": "^1.16.1",
     "@types/react-dom": "^18.2.7",
@@ -48,13 +50,17 @@
     "typescript": "~5.1.6"
   },
   "dependencies": {
+    "@google-analytics/data": "^5.2.1",
     "@heroicons/react": "^2.2.0",
     "autoprefixer": "^10.4.14",
+    "axios": "^1.12.2",
+    "buffer": "^6.0.3",
+    "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "electron-squirrel-startup": "^1.0.0",
-    "firebase": "^12.3.0",
+    "firebase": "^12.4.0",
     "firebase-admin": "^13.5.0",
     "firebase-functions": "^6.4.0",
     "html2canvas": "^1.4.1",
@@ -63,13 +69,17 @@
     "lucide-react": "^0.510.0",
     "nanoid": "^5.1.6",
     "postcss": "^8.4.35",
+    "process": "^0.11.10",
     "react": "^18.3.1",
     "react-big-calendar": "^1.18.0",
+    "react-chartjs-2": "^5.3.0",
     "react-dom": "^18.3.1",
     "react-icons": "^5.5.0",
-    "recharts": "^2.15.3",
+    "recharts": "^2.15.4",
+    "stream-browserify": "^3.0.0",
     "tailwind-variants": "^1.0.0",
     "tailwindcss": "3.3.3",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "util": "^0.12.5"
   }
 }

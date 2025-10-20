@@ -67,7 +67,7 @@ export default function ElectionDashboard() {
   const [electionAlreadyExists, setElectionAlreadyExists] = useState<boolean>(false);
   const [activePosition, setActivePosition] = useState<string>("President");
   const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
-  const [activeElectionTitle, setActiveElectionTitle] = useState<string>(""); // Add this line
+  const [activeElectionTitle, setActiveElectionTitle] = useState<string>("");
 
   const [allCandidatesFromFirestore, setAllCandidatesFromFirestore] = useState<
     DisplayCandidate[]
@@ -87,11 +87,29 @@ export default function ElectionDashboard() {
   const [candidatesList, setCandidatesList] = useState<Candidate[]>([]);
 
   const [voterStats, setVoterStats] = useState({
-    total: 0,
-    voted: 0,
-    notVoted: 0,
+    total: 0,    // Only Active members
+    voted: 0,    // Only votes from Active members
+    notVoted: 0, // Only Active members who haven't voted
   });
   
+  // Function to fetch active members count
+  const fetchActiveMembers = async () => {
+    try {
+      const membersSnapshot = await getDocs(collection(db, "members"));
+      
+      // Count only members with "Active" status
+      const activeMembers = membersSnapshot.docs.filter(doc => {
+        const memberData = doc.data();
+        return memberData.status === "Active"; // Only count Active members
+      });
+      
+      return activeMembers.length;
+    } catch (error) {
+      console.error("Failed to fetch active members:", error);
+      return 0;
+    }
+  };
+
   // New function to update remaining time
   const updateRemainingTime = (endTimestamp: Timestamp) => {
     const now = new Date();
@@ -99,8 +117,9 @@ export default function ElectionDashboard() {
     const remaining = Math.floor((endTime.getTime() - now.getTime()) / 1000);
     setDurationSeconds(Math.max(0, remaining));
   };
+
   const hasTallyBeenCalled = React.useRef(false); 
-  // The core function for ending the election
+  
   // The core function for ending the election
   const tallyVotesAndSaveOfficials = async (electionId: string) => {
     if (!electionId) {
@@ -111,10 +130,7 @@ export default function ElectionDashboard() {
         console.warn("Tallying is already in progress or has finished. Aborting redundant call.");
         return; 
     }
-     hasTallyBeenCalled.current = true;// Prevent double calls
-    // Use a Ref/Flag here if not already implemented to prevent double calls (Highly Recommended)
-    // if (hasTallyBeenCalled.current) return;
-    // hasTallyBeenCalled.current = true;
+    hasTallyBeenCalled.current = true;
     
     setIsSubmitting(true);
     try {
@@ -136,24 +152,34 @@ export default function ElectionDashboard() {
         ...doc.data() as Candidate
       }));
 
-      // Step 3: Fetch all votes for the current election
+      // Step 3: Fetch all ACTIVE members
+      const membersSnapshot = await getDocs(collection(db, "members"));
+      const activeMemberIds = membersSnapshot.docs
+        .filter(doc => doc.data().status === "Active")
+        .map(doc => doc.id);
+
+      // Step 4: Fetch votes but only from active members
       const votesRef = collection(db, "votes");
       const votesQuery = query(votesRef, where("eventId", "==", electionId));
       const votesSnapshot = await getDocs(votesQuery);
-      const allVotes = votesSnapshot.docs.map(doc => doc.data().votes);
-
-      // Step 4: Tally votes
+      
       const voteCounts = new Map<string, number>();
 
-      allVotes.forEach(voteObject => {
-        if (voteObject && typeof voteObject === "object") {
-          Object.keys(voteObject).forEach((position) => {
-            const candidateId = voteObject[position]?.candidateId;
-            const candidate = candidates.find(c => c.id === candidateId); 
-            if (candidate) {
-              voteCounts.set(candidate.id, (voteCounts.get(candidate.id) || 0) + 1);
-            }
-          });
+      votesSnapshot.docs.forEach(doc => {
+        const voteData = doc.data();
+        const voterId = voteData.userId;
+        
+        // Only count votes from active members
+        if (voterId && activeMemberIds.includes(voterId)) {
+          if (voteData.votes && typeof voteData.votes === "object") {
+            Object.keys(voteData.votes).forEach((position) => {
+              const candidateId = voteData.votes[position]?.candidateId;
+              const candidate = candidates.find(c => c.id === candidateId); 
+              if (candidate) {
+                voteCounts.set(candidate.id, (voteCounts.get(candidate.id) || 0) + 1);
+              }
+            });
+          }
         }
       });
 
@@ -164,8 +190,8 @@ export default function ElectionDashboard() {
       for (const position of positions) {
         const candidatesForPosition = candidates.filter(c => c.position === position);
         let winningCandidate: Candidate | null = null;
-        let maxVotes = -1; // Keep -1 to ensure 0 votes is handled
-        let tieCount = 0; // NEW: Counter to track ties
+        let maxVotes = -1;
+        let tieCount = 0;
 
         for (const candidate of candidatesForPosition) {
           const currentVotes = voteCounts.get(candidate.id) || 0;
@@ -173,20 +199,17 @@ export default function ElectionDashboard() {
           if (currentVotes > maxVotes) {
             maxVotes = currentVotes;
             winningCandidate = candidate;
-            tieCount = 1; // Reset count as we found a new winner
+            tieCount = 1;
           } else if (currentVotes === maxVotes && currentVotes > 0) { 
-            // Found a tie with a score greater than 0
             tieCount++; 
           }
         }
 
-        // FINAL CHECK: Save ONLY if there is a single winner (tieCount === 1) 
-        // AND that winner has at least one vote (maxVotes > 0).
         if (winningCandidate && maxVotes > 0 && tieCount === 1) {
           const winnerDocRef = doc(electedOfficialsRef);
           batch.set(winnerDocRef, {
             name: winningCandidate.name,
-            position: winningCandidate.position, // Changed from "position" to "role"
+            position: winningCandidate.position,
             termDuration: winningCandidate.termDuration,
             photoURL: winningCandidate.photoURL,
             votes: maxVotes,
@@ -198,7 +221,6 @@ export default function ElectionDashboard() {
       }
       
       // Step 6: Delete the current election and its candidates subcollection
-      
       const electionDocRef = doc(db, "elections", electionId);
       batch.delete(electionDocRef);
 
@@ -210,31 +232,26 @@ export default function ElectionDashboard() {
       alert("Election has been successfully ended and results are saved!");
       
       hasTallyBeenCalled.current = false;
-      // OPTIONAL: Reload the dashboard to clear the UI after success
       window.location.reload(); 
 
     } catch (error) {
       console.error("Failed to tally votes or save officials:", error);
       alert("An error occurred while ending the election.");
+      hasTallyBeenCalled.current = false;
     } finally {
       setIsSubmitting(false);
-      // hasTallyBeenCalled.current = false; // Reset the flag
     }
   };
-  // Fetch total voters from Firestore
+
+  // Fetch total ACTIVE voters from Firestore
   useEffect(() => {
     const fetchTotalVoters = async () => {
-      try {
-        const membersSnapshot = await getDocs(collection(db, "members"));
-        const totalMembers = membersSnapshot.docs.length;
-        setVoterStats((prevStats) => ({
-          ...prevStats,
-          total: totalMembers,
-          notVoted: totalMembers - prevStats.voted,
-        }));
-      } catch (error) {
-        console.error("Failed to fetch total voters from Firestore:", error);
-      }
+      const totalActiveMembers = await fetchActiveMembers();
+      setVoterStats((prevStats) => ({
+        ...prevStats,
+        total: totalActiveMembers,
+        notVoted: totalActiveMembers - prevStats.voted,
+      }));
     };
     fetchTotalVoters();
   }, []);
@@ -259,13 +276,13 @@ export default function ElectionDashboard() {
           isElectionFound = true;
           currentElectionId = doc.id;
           electionEndTime = electionData.endTimestamp;
-          currentElectionTitle = electionData.title; // Store the title
+          currentElectionTitle = electionData.title;
         }
       });
 
       setElectionAlreadyExists(isElectionFound);
       setActiveElectionId(currentElectionId);
-      setActiveElectionTitle(currentElectionTitle); // Set the active election title
+      setActiveElectionTitle(currentElectionTitle);
 
       if (isElectionFound && electionEndTime) {
         setVotingActive(true);
@@ -273,7 +290,7 @@ export default function ElectionDashboard() {
       } else {
         setVotingActive(false);
         setDurationSeconds(0);
-        setActiveElectionTitle(""); // Clear title when no active election
+        setActiveElectionTitle("");
       }
     });
 
@@ -287,9 +304,8 @@ export default function ElectionDashboard() {
       timer = setInterval(() => {
         setDurationSeconds(prevSeconds => {
           if (prevSeconds <= 1) {
-            // Tally votes when timer ends
             if (activeElectionId) {
-              tallyVotesAndSaveOfficials(activeElectionId); // This is now protected by the Ref
+              tallyVotesAndSaveOfficials(activeElectionId);
             }
             return 0;
           }
@@ -298,7 +314,6 @@ export default function ElectionDashboard() {
       }, 1000);
     }
     
-    // IMPORTANT: Cleanup must be here to prevent interval from running twice
     return () => { 
       if (timer) clearInterval(timer);
     };
@@ -309,7 +324,14 @@ export default function ElectionDashboard() {
     if (!activeElectionId) {
       setAllCandidatesFromFirestore([]);
       setActivePosition("President");
-      setVoterStats(prevStats => ({ ...prevStats, voted: 0, notVoted: prevStats.total }));
+      // Reset to only active members count
+      fetchActiveMembers().then(totalActiveMembers => {
+        setVoterStats({
+          total: totalActiveMembers,
+          voted: 0,
+          notVoted: totalActiveMembers,
+        });
+      });
       return;
     }
 
@@ -320,21 +342,29 @@ export default function ElectionDashboard() {
       const candidatesData: DisplayCandidate[] = candidatesSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data() as Candidate,
-        votes: 0 // Initialize votes to 0
+        votes: 0
       }));
       setAllCandidatesFromFirestore(candidatesData);
 
       // Now, set up the votes listener after candidates are fetched
       const votesQuery = query(votesCollectionRef, where("eventId", "==", activeElectionId));
       
-      const unsubscribeVotes = onSnapshot(votesQuery, (votesSnapshot) => {
+      const unsubscribeVotes = onSnapshot(votesQuery, async (votesSnapshot) => {
         const uniqueVoters = new Set<string>();
         const voteCounts = new Map<string, number>();
+
+        // First, get all active members to validate voters
+        const membersSnapshot = await getDocs(collection(db, "members"));
+        const activeMemberIds = membersSnapshot.docs
+          .filter(doc => doc.data().status === "Active")
+          .map(doc => doc.id);
 
         votesSnapshot.docs.forEach((doc) => {
           const voteData = doc.data();
           const voterId = voteData.userId;
-          if (voterId) {
+          
+          // Only count votes from active members
+          if (voterId && activeMemberIds.includes(voterId)) {
             uniqueVoters.add(voterId);
           }
 
@@ -350,13 +380,15 @@ export default function ElectionDashboard() {
           }
         });
         
-        // Update voter stats
+        // Update voter stats - only active members are considered
         const votedCount = uniqueVoters.size;
-        setVoterStats(prevStats => ({
-          ...prevStats,
+        const totalActiveMembers = activeMemberIds.length;
+        
+        setVoterStats({
+          total: totalActiveMembers,
           voted: votedCount,
-          notVoted: prevStats.total - votedCount,
-        }));
+          notVoted: totalActiveMembers - votedCount,
+        });
 
         // Update candidate vote counts
         setAllCandidatesFromFirestore((prevCandidates) => {
@@ -370,11 +402,9 @@ export default function ElectionDashboard() {
         });
       });
 
-      // Return cleanup function for the votes listener
       return unsubscribeVotes;
     });
 
-    // Return cleanup function for the candidates listener
     return unsubscribeCandidates;
   }, [activeElectionId]);
   
@@ -412,7 +442,6 @@ export default function ElectionDashboard() {
     setIsSubmitting(true);
     let photoURL = "";
     try {
-      // Create a unique file name to avoid collisions
       const uniqueFileName = `${Date.now()}_${currentCandidate.imageFile.name}`;
       const storageRef = ref(storage, `candidates/${uniqueFileName}`);
       
@@ -458,7 +487,6 @@ export default function ElectionDashboard() {
           return;
       }
 
-      // Create a batch to add the election and all candidates in one atomic operation
       const batch = writeBatch(db);
       
       const newElectionRef = doc(collection(db, "elections"));
@@ -485,7 +513,6 @@ export default function ElectionDashboard() {
       setCandidatesList([]);
       setShowForm(false);
       
-      // Force reload the election listener
       setActiveElectionId(newElectionRef.id); 
 
     } catch (error) {
@@ -506,7 +533,6 @@ export default function ElectionDashboard() {
       return;
     }
 
-    // Call the tally function to save results before deleting the election
     await tallyVotesAndSaveOfficials(activeElectionId);
   };
   
@@ -698,7 +724,7 @@ export default function ElectionDashboard() {
             <button
               onClick={() => {
                   setShowForm(false);
-                  setCandidatesList([]); // Clear candidates if form is closed
+                  setCandidatesList([]);
               }}
               className="absolute top-2 right-2 text-gray-600 hover:text-black text-2xl"
             >
