@@ -78,7 +78,6 @@ const Layout = () => {
             setNewComplaintsCount(count);
         }, (error) => {
             console.error("Error fetching new complaints count:", error);
-            setNewComplaintsCount(0); 
         });
 
         return () => unsubscribe();

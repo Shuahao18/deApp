@@ -158,40 +158,6 @@ export default function App() {
         navigate('/Dashboard');
     };
 
-    // 🌟 NEW: Function to save user profiles 🌟
-    const saveUserProfile = async (user: any, additionalData = {}) => {
-        try {
-            await setDoc(doc(db, "users", user.uid), {
-                uid: user.uid,
-                email: user.email,
-                displayName: user.displayName,
-                photoURL: user.photoURL,
-                createdAt: serverTimestamp(),
-                lastLogin: serverTimestamp(),
-                ...additionalData
-            });
-            console.log("✅ User profile saved successfully");
-        } catch (error) {
-            console.error("❌ Error saving user profile:", error);
-        }
-    };
-
-    // 🌟 NEW: Function to sync user profiles 🌟
-    const syncUserProfile = async (userId: string) => {
-        try {
-            const userDoc = await getDoc(doc(db, "users", userId));
-            if (!userDoc.exists()) {
-                // Create user profile if it doesn't exist
-                const user = auth.currentUser;
-                if (user && user.uid === userId) {
-                    await saveUserProfile(user);
-                }
-            }
-        } catch (error) {
-            console.error("Error syncing user profile:", error);
-        }
-    };
-
     // 🌟 UPDATED: Improved getAuthorLabel for HOA Officials 🌟
     const getAuthorLabel = async (uid: string, fallback: string): Promise<{name: string, photoURL: string | null}> => {
         try {
@@ -382,11 +348,6 @@ export default function App() {
                     console.log("🎯 Admin doc exists:", adminDoc.exists());
                     setIsAdmin(adminDoc.exists());
                     
-                    // 🌟 NEW: Ensure user profile exists in Firestore
-                    await saveUserProfile(currentUser, {
-                        isAdmin: adminDoc.exists()
-                    });
-                    
                     // Test the getAuthorLabel function
                     const testAuthor = await getAuthorLabel(currentUser.uid, currentUser.displayName || "HOA Official");
                     console.log("🧪 Test getAuthorLabel result:", testAuthor);
@@ -503,7 +464,7 @@ export default function App() {
         return () => unsubscribe();
     };
 
-    // 🌟 UPDATED: handleAddComment with syncUserProfile 🌟
+    // 🌟 UPDATED: handleAddComment without syncUserProfile 🌟
     const handleAddComment = async (postId: string) => {
         if (!newComment.trim()) return;
         if (!user) {
@@ -511,9 +472,6 @@ export default function App() {
             return;
         }
         try {
-            // 🌟 NEW: Sync user profile before creating comment
-            await syncUserProfile(user.uid);
-            
             const postRef = doc(db, "posts", postId);
             await runTransaction(db, async (transaction) => {
                 const authorInfo = await getAuthorLabel(user.uid, user.displayName || "HOA Official");
@@ -535,15 +493,12 @@ export default function App() {
         }
     };
 
-    // 🌟 UPDATED: handleToggleReact with syncUserProfile 🌟
+    // 🌟 UPDATED: handleToggleReact without syncUserProfile 🌟
     const handleToggleReact = async (postId: string) => {
         if (!user) {
             alert("You must be logged in to react.");
             return;
         }
-        
-        // 🌟 NEW: Sync user profile before reacting
-        await syncUserProfile(user.uid);
         
         const postRef = doc(db, "posts", postId);
         const reactRef = doc(db, "posts", postId, "reacts", user.uid);
@@ -579,7 +534,7 @@ export default function App() {
         }
     };
     
-    // 🌟 UPDATED: handleCreatePost with syncUserProfile 🌟
+    // 🌟 UPDATED: handleCreatePost without syncUserProfile 🌟
     const handleCreatePost = async () => {
         if (!content.trim() && !fileToUpload) {
             alert("Please add content or attach a file.");
@@ -598,9 +553,6 @@ export default function App() {
         let mediaPath = "";
 
         try {
-            // 🌟 NEW: Sync user profile before creating post
-            await syncUserProfile(user.uid);
-
             if (fileToUpload) {
                 setUploadProgress(5);
                 const uploadResult = await uploadFileToStorage(fileToUpload);

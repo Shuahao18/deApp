@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, auth, storage } from '../../Firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addDoc, where, getDocs } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, sendPasswordResetEmail, deleteUser, signOut } from 'firebase/auth';
+import { db, storage, functions } from '../../Firebase';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addDoc, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { Plus, MoreVertical, Edit2, X } from 'lucide-react';
-import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { httpsCallable } from 'firebase/functions';
+import { Plus, MoreVertical, Edit2, X, Link, Unlink } from 'lucide-react';
+import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 
 // --- INTERFACES ---
@@ -16,8 +16,8 @@ interface Official {
     email: string;
     termDuration?: string;
     photoURL?: string;
-    authUid?: string;
     address?: string;
+    authUid?: string;
 }
 
 interface CommitteeMember {
@@ -33,19 +33,23 @@ interface CommitteeMember {
     address?: string;
 }
 
-interface AdminUser {
-    id?: string;
-    name: string;
+interface CreateUserAccountResponse {
+    success: boolean;
+    userId: string;
     email: string;
-    role: string;
-    position: string;
-    contactNo?: string;
-    termDuration?: string;
-    photoURL?: string;
-    address?: string;
-    status: string;
-    createdAt: Date;
-    updatedAt: Date;
+    message: string;
+}
+
+interface CreateUserAccountRequest {
+    userData: {
+        name: string;
+        email: string;
+        position: string;
+        contactNo?: string;
+        address?: string;
+        termDuration?: string;
+    };
+    password: string;
 }
 
 interface EditModalProps {
@@ -61,6 +65,13 @@ interface AddMemberModalProps {
     onClose: () => void;
 }
 
+interface LinkAccountModalProps {
+    member: Official;
+    onClose: () => void;
+    onLinkSuccess: () => void;
+    onUpdateOfficial: (officialId: string, updates: Partial<Official>) => void;
+}
+
 type TabKey = "Executive officers" | "Board of Directors" | "Committee officers";
 
 interface HOABoardContentProps {
@@ -68,6 +79,8 @@ interface HOABoardContentProps {
     handleEditClick: (official: Official) => void;
     handleDeleteClick: (official: Official) => void;
     handleAddNewOfficial: () => void;
+    handleLinkAccount: (official: Official) => void;
+    handleUnlinkAccount: (official: Official) => void;
     openMenuIndex: number | null;
     setOpenMenuIndex: React.Dispatch<React.SetStateAction<number | null>>;
 }
@@ -114,56 +127,254 @@ const deleteOldPhoto = async (oldPhotoUrl?: string) => {
     }
 };
 
-// --- HELPER FUNCTION: Sync to Admin Collection ---
-const syncToAdminCollection = async (userData: Partial<Official | CommitteeMember>, authUid: string, operation: 'create' | 'update') => {
-    try {
-        const adminData: AdminUser = {
-            name: userData.name || '',
-            email: userData.email || '',
-            role: 'Admin',
-            position: 'Executive Officer',
-            contactNo: userData.contactNo || '',
-            termDuration: userData.termDuration || '',
-            photoURL: userData.photoURL || '',
-            address: userData.address || '',
-            status: 'active',
-            createdAt: new Date(),
-            updatedAt: new Date()
-        };
-
-        if (operation === 'create') {
-            await addDoc(collection(db, 'admin'), adminData);
-            console.log('✅ User synced to admin collection with status: Active', userData.email);
-        } else if (operation === 'update') {
-            const adminQuery = query(collection(db, 'admin'), where('authUid', '==', authUid));
-            const querySnapshot = await getDocs(adminQuery);
-            
-            if (!querySnapshot.empty) {
-                const adminDoc = querySnapshot.docs[0];
-                await updateDoc(doc(db, 'admin', adminDoc.id), {
-                    ...adminData,
-                    status: 'active',
-                    updatedAt: new Date()
-                });
-                console.log('✅ Admin user updated with status: Active', userData.email);
-            } else {
-                await addDoc(collection(db, 'admin'), adminData);
-                console.log('✅ New admin user created during update with status: Active', userData.email);
-            }
-        }
-    } catch (error) {
-        console.error('❌ Error syncing to admin collection:', error);
-        throw error;
-    }
-};
-
 // --- MODAL COMPONENTS ---
+
+// *********** LinkAccountModal ***********
+const LinkAccountModal: React.FC<LinkAccountModalProps> = ({ 
+    member, 
+    onClose, 
+    onLinkSuccess,
+    onUpdateOfficial 
+}) => {
+    const [formData, setFormData] = useState({
+        email: member.email || '',
+        password: '',
+        confirmPassword: ''
+    });
+    const [isLinking, setIsLinking] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // Prevent linking if already linked
+    useEffect(() => {
+        if (member.authUid) {
+            setError("This account is already linked. Cannot link again.");
+        }
+    }, [member.authUid]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData({
+            ...formData,
+            [e.target.name]: e.target.value
+        });
+        setError(null);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError(null);
+        
+        // Check if already linked
+        if (member.authUid) {
+            setError("This account is already linked. Cannot link again.");
+            return;
+        }
+
+        if (!formData.email) {
+            setError("Email is required");
+            return;
+        }
+
+        if (formData.password !== formData.confirmPassword) {
+            setError("Passwords do not match");
+            return;
+        }
+
+        if (formData.password.length < 6) {
+            setError("Password must be at least 6 characters long");
+            return;
+        }
+
+        setIsLinking(true);
+
+        try {
+            const createUserAccount = httpsCallable<CreateUserAccountRequest, CreateUserAccountResponse>(
+                functions, 
+                'createUserAccount'
+            );
+            
+            const userData = {
+                name: member.name,
+                email: formData.email,
+                position: member.position,
+                contactNo: member.contactNo || '',
+                address: member.address || '',
+                termDuration: member.termDuration || '',
+            };
+
+            const result = await createUserAccount({
+                userData,
+                password: formData.password
+            });
+
+            const updateData: any = {
+                email: formData.email
+            };
+            
+            if (result.data && result.data.userId) {
+                updateData.authUid = result.data.userId;
+            }
+
+            const officialRef = doc(db, "elected_officials", member.id);
+            await updateDoc(officialRef, updateData);
+
+            // IMMEDIATELY UPDATE LOCAL STATE
+            onUpdateOfficial(member.id, {
+                email: formData.email,
+                authUid: result.data?.userId || `temp_${Date.now()}`
+            });
+
+            alert(`Account linked successfully for ${member.name}!`);
+            onLinkSuccess();
+            onClose();
+
+        } catch (error: any) {
+            console.error("Error linking account:", error);
+            
+            let errorMessage = "Failed to link account. Please try again.";
+            
+            if (error.code === 'functions/internal') {
+                errorMessage = "Internal server error. Please try again later.";
+            } else if (error.message.includes('email-already-exists') || error.code === 'already-exists') {
+                errorMessage = "This email is already registered. Please use a different email.";
+            } else if (error.message.includes('invalid-email') || error.code === 'invalid-argument') {
+                errorMessage = "Invalid email address format.";
+            } else if (error.message.includes('weak-password')) {
+                errorMessage = "Password is too weak. Please use a stronger password (at least 6 characters).";
+            } else if (error.message.includes('User created successfully')) {
+                try {
+                    const officialRef = doc(db, "elected_officials", member.id);
+                    await updateDoc(officialRef, {
+                        email: formData.email,
+                        authUid: `temp_${Date.now()}`
+                    });
+                    
+                    // Update local state
+                    onUpdateOfficial(member.id, {
+                        email: formData.email,
+                        authUid: `temp_${Date.now()}`
+                    });
+                    
+                    alert(`Account linked successfully for ${member.name}! (Note: Please check user ID in Firebase console)`);
+                    onLinkSuccess();
+                    onClose();
+                    return;
+                } catch (updateError) {
+                    errorMessage = "User created but failed to link account. Please contact administrator.";
+                }
+            } else {
+                errorMessage = error.message || errorMessage;
+            }
+            
+            setError(errorMessage);
+        } finally {
+            setIsLinking(false);
+        }
+    };
+
+    // If account is already linked, show different UI
+    if (member.authUid) {
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
+                    <h2 className="text-xl font-bold mb-4 text-green-600">Account Already Linked</h2>
+                    <div className="p-4 mb-4 bg-green-50 border border-green-200 rounded-lg">
+                        <p className="text-green-800">
+                            <strong>{member.name}</strong>'s account is already linked.
+                        </p>
+                        <p className="text-green-700 text-sm mt-2">
+                            Email: {member.email}<br />
+                            Status: <span className="font-semibold">Linked</span>
+                        </p>
+                    </div>
+                    <div className="flex justify-end pt-4 border-t mt-4">
+                        <button 
+                            onClick={onClose}
+                            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
+                <h2 className="text-xl font-bold mb-4">Link Account for {member.name}</h2>
+                {error && (
+                    <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">{error}</div>
+                )}
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
+                        <input 
+                            type="email" 
+                            name="email" 
+                            value={formData.email} 
+                            onChange={handleChange} 
+                            required 
+                            disabled={isLinking}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100" 
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Password <span className="text-red-500">*</span></label>
+                        <input 
+                            type="password" 
+                            name="password" 
+                            value={formData.password} 
+                            onChange={handleChange} 
+                            required 
+                            disabled={isLinking}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100" 
+                            placeholder="Minimum 6 characters"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Confirm Password <span className="text-red-500">*</span></label>
+                        <input 
+                            type="password" 
+                            name="confirmPassword" 
+                            value={formData.confirmPassword} 
+                            onChange={handleChange} 
+                            required 
+                            disabled={isLinking}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100" 
+                        />
+                    </div>
+
+                    <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            disabled={isLinking}
+                            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            disabled={isLinking || !!error}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                        >
+                            {isLinking ? "Linking..." : "Link Account"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
 // *********** EditOfficialModal ***********
 const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddingNew = false, isExecutiveOfficer = false }) => {
     const initialOfficial = official || {
         id: '', name: '', position: '', email: '',
-        contactNo: '', termDuration: '', photoURL: '', authUid: undefined, address: ''
+        contactNo: '', termDuration: '', photoURL: '', address: ''
     };
 
     const [formData, setFormData] = useState({
@@ -173,8 +384,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
         email: initialOfficial.email || '',
         termDuration: initialOfficial.termDuration || '',
         address: initialOfficial.address || '',
-        password: '',
-        confirmPassword: '',
     });
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(initialOfficial.photoURL || null);
@@ -182,7 +391,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
 
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const hasAuthAccount = !!initialOfficial.authUid;
 
     useEffect(() => {
         return () => {
@@ -241,9 +449,8 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
         setError(null);
         setIsSaving(true);
 
-        const { password, confirmPassword, ...dataToSave } = formData;
+        const dataToSave = formData;
         let finalPayload: Partial<Official> = dataToSave;
-        let newAuthUid = initialOfficial.authUid;
 
         try {
             if (!dataToSave.name || !dataToSave.position || !dataToSave.email) {
@@ -263,43 +470,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                 }
             }
 
-            if (!hasAuthAccount && (password || confirmPassword)) {
-                if (!password || !confirmPassword) {
-                    setError("Password and Confirm Password are required to create a new account.");
-                    setIsSaving(false);
-                    return;
-                }
-                if (password !== confirmPassword) {
-                    setError("Password and Confirm Password do not match.");
-                    setIsSaving(false);
-                    return;
-                }
-                if (password.length < 6) {
-                    setError("Password must be at least 6 characters long.");
-                    setIsSaving(false);
-                    return;
-                }
-
-                const userCredential = await createUserWithEmailAndPassword(
-                    auth,
-                    formData.email,
-                    password
-                );
-                newAuthUid = userCredential.user.uid;
-                finalPayload.authUid = newAuthUid;
-                
-                alert(`Login account successfully created and linked to Firebase Auth for ${formData.name}.`);
-
-                if (isExecutiveOfficer && newAuthUid) {
-                    await syncToAdminCollection(finalPayload, newAuthUid, 'create');
-                }
-
-            } else if (hasAuthAccount && (password || confirmPassword)) {
-                setError("Security Alert: For existing accounts, use the 'Reset Password' button. Password fields are for initial setup only.");
-                setIsSaving(false);
-                return;
-            }
-
             if (isAddingNew) {
                 await addDoc(collection(db, "elected_officials"), finalPayload);
                 alert("New official added successfully!");
@@ -307,10 +477,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                 const officialRef = doc(db, "elected_officials", official.id);
                 await updateDoc(officialRef, finalPayload);
                 alert("Official data updated successfully!");
-
-                if (isExecutiveOfficer && newAuthUid) {
-                    await syncToAdminCollection(finalPayload, newAuthUid, 'update');
-                }
             } else {
                 setError("Invalid operation: Cannot add or update without proper context.");
                 setIsSaving(false);
@@ -320,17 +486,11 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
             onClose();
 
         } catch (error: any) {
-            console.error("Error processing operation/Auth:", error);
+            console.error("Error processing operation:", error);
 
-            let errorMessage = "Failed to process official data or manage account.";
-            if (error.code === 'auth/email-already-in-use') {
-                errorMessage = "Error: The email is already registered to another account.";
-            } else if (error.code === 'auth/weak-password') {
-                errorMessage = "Error: Password is too weak (min 6 characters).";
-            } else if (error.code === 'auth/invalid-email') {
-                errorMessage = "Error: The email address is not valid.";
-            } else if (error.code === 'permission-denied' || (error.message && error.message.includes('permission'))) {
-                errorMessage = "FATAL ERROR: Missing or insufficient permissions. Check Firebase Security Rules and Admin login state.";
+            let errorMessage = "Failed to process official data.";
+            if (error.code === 'permission-denied' || (error.message && error.message.includes('permission'))) {
+                errorMessage = "Permission denied. Please check if you have proper access rights.";
             } else if (error.message) {
                 errorMessage = error.message;
             }
@@ -338,20 +498,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
             setError(errorMessage);
         } finally {
             setIsSaving(false);
-        }
-    };
-
-    const handlePasswordReset = async () => {
-        if (!formData.email) {
-            alert("Please provide the official's email address first to reset the password.");
-            return;
-        }
-        try {
-            await sendPasswordResetEmail(auth, formData.email);
-            alert(`Password reset link sent to ${formData.email}. The official must check their email to complete the reset.`);
-        } catch (error) {
-            console.error("Error sending password reset email:", error);
-            alert("Failed to send password reset email. Check if the email is correctly registered in Firebase Auth.");
         }
     };
 
@@ -423,7 +569,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Email (Required for Login) <span className="text-red-500">*</span></label>
+                        <label className="block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
                         <input type="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
 
@@ -443,53 +589,6 @@ const EditOfficialModal: React.FC<EditModalProps> = ({ official, onClose, isAddi
                         <label className="block text-sm font-medium text-gray-700">Term Duration</label>
                         <input type="text" name="termDuration" value={formData.termDuration} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
                         <p className="text-xs text-gray-500 mt-1">E.g., "2 years" or "until next election"</p>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                        <h3 className="text-lg font-semibold mb-2 flex justify-between items-center">
-                            {hasAuthAccount ? "Account Status: Linked" : "Initial Account Setup"}
-                            {hasAuthAccount && formData.email && (
-                                <button
-                                    type="button"
-                                    onClick={handlePasswordReset}
-                                    className="text-sm px-3 py-1 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
-                                >
-                                    Reset Password
-                                </button>
-                            )}
-                        </h3>
-
-                        {!hasAuthAccount && (
-                            <>
-                                <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to create their login account.</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Password <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="password"
-                                            name="password"
-                                            value={formData.password}
-                                            onChange={handleChange}
-                                            required={!hasAuthAccount && isAddingNew}
-                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                                            placeholder="Enter initial password"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Confirm Password <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="password"
-                                            name="confirmPassword"
-                                            value={formData.confirmPassword}
-                                            onChange={handleChange}
-                                            required={!hasAuthAccount && isAddingNew}
-                                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                                            placeholder="Confirm password"
-                                        />
-                                    </div>
-                                </div>
-                            </>
-                        )}
                     </div>
 
                     <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
@@ -524,8 +623,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
         termDuration: "",
         address: "",
         photoURL: undefined as string | undefined,
-        password: "",
-        confirmPassword: "",
     });
     const [isAdding, setIsAdding] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -624,7 +721,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
         setError(null);
         setIsAdding(true);
 
-        const { password, confirmPassword, ...dataToAdd } = formData;
+        const dataToAdd = formData;
         let finalPayload: Partial<CommitteeMember> = dataToAdd;
 
         try {
@@ -645,22 +742,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                 setIsAdding(false);
                 return;
             }
-            
-            if (!password || !confirmPassword) {
-                setError("Password and Confirm Password are required to create the login account.");
-                setIsAdding(false);
-                return;
-            }
-            if (password !== confirmPassword) {
-                setError("Password and Confirm Password do not match.");
-                setIsAdding(false);
-                return;
-            }
-            if (password.length < 6) {
-                setError("Password must be at least 6 characters long.");
-                setIsAdding(false);
-                return;
-            }
 
             if (selectedFile) {
                 finalPayload.photoURL = await handleImageUpload();
@@ -668,31 +749,17 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                 finalPayload.photoURL = undefined;
             }
 
-            const userCredential = await createUserWithEmailAndPassword(
-                auth,
-                formData.email,
-                password
-            );
-            finalPayload.authUid = userCredential.user.uid;
-            alert(`Login account successfully created and linked to Firebase Auth for ${formData.name}.`);
-
             await addDoc(collection(db, collectionPath), finalPayload);
 
             alert(`${formData.name} added to ${formatCommitteeName(committeeName)} successfully!`);
             onClose();
 
         } catch (error: any) {
-            console.error("Error adding member or creating Auth account:", error);
+            console.error("Error adding member:", error);
 
-            let errorMessage = "Failed to add member or create account.";
-            if (error.code === 'auth/email-already-in-use') {
-                errorMessage = "Error: The email is already registered to another account.";
-            } else if (error.code === 'auth/weak-password') {
-                errorMessage = "Error: Password is too weak (min 6 characters).";
-            } else if (error.code === 'auth/invalid-email') {
-                errorMessage = "Error: The email address is not valid.";
-            } else if (error.code === 'permission-denied' || (error.message && error.message.includes('permission'))) {
-                errorMessage = "FATAL ERROR: Missing or insufficient permissions. Check Firebase Security Rules and Admin login state.";
+            let errorMessage = "Failed to add member.";
+            if (error.code === 'permission-denied' || (error.message && error.message.includes('permission'))) {
+                errorMessage = "Permission denied. Please check if you have proper access rights.";
             } else if (error.message) {
                 errorMessage = error.message;
             }
@@ -791,7 +858,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Email (Required for Login) <span className="text-red-500">*</span></label>
+                        <label className="block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
                         <input type="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
 
@@ -816,37 +883,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({ committeeName, onClose,
                         <label className="block text-sm font-medium text-gray-700">Term Duration</label>
                         <input type="text" name="termDuration" value={formData.termDuration} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
                         <p className="text-xs text-gray-500 mt-1">E.g., "2 years" or "until next election"</p>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                        <h3 className="text-lg font-semibold mb-2">Login Account Setup <span className="text-red-500">*</span></h3>
-                        <p className="text-sm text-gray-600 mb-2">Fill in the password fields below to create their login account.</p>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Password</label>
-                                <input
-                                    type="password"
-                                    name="password"
-                                    value={formData.password}
-                                    onChange={handleChange}
-                                    required
-                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Enter initial password"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
-                                <input
-                                    type="password"
-                                    name="confirmPassword"
-                                    value={formData.confirmPassword}
-                                    onChange={handleChange}
-                                    required
-                                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Confirm password"
-                                />
-                            </div>
-                        </div>
                     </div>
 
                     <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
@@ -879,8 +915,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
         dateElected: member.dateElected || '',
         termDuration: member.termDuration || '',
         address: member.address || '',
-        password: '',
-        confirmPassword: '',
     });
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(member.photoURL || null);
@@ -888,7 +922,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
 
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const hasAuthAccount = !!member.authUid;
 
     useEffect(() => {
         return () => {
@@ -941,26 +974,12 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
         return getDownloadURL(storageRef);
     };
 
-    const handlePasswordReset = async () => {
-        if (!formData.email) {
-            alert("Please provide the member's email address first to reset the password.");
-            return;
-        }
-        try {
-            await sendPasswordResetEmail(auth, formData.email);
-            alert(`Password reset link sent to ${formData.email}. The member must check their email to complete the reset.`);
-        } catch (error) {
-            console.error("Error sending password reset email:", error);
-            alert("Failed to send password reset email. Check if the email is correctly registered in Firebase Auth.");
-        }
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
         setError(null);
 
-        const { password, confirmPassword, ...dataToUpdate } = formData;
+        const dataToUpdate = formData;
         let finalPayload: Partial<CommitteeMember> = dataToUpdate;
 
         try {
@@ -1065,7 +1084,7 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Email (Required for Login) <span className="text-red-500">*</span></label>
+                        <label className="block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
                         <input type="email" name="email" value={formData.email} onChange={handleChange} required className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
                     </div>
                     <div>
@@ -1086,24 +1105,6 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({ mem
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Term Duration</label>
                         <input type="text" name="termDuration" value={formData.termDuration} onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" />
-                    </div>
-
-                    <div className="pt-4 border-t">
-                        <h3 className="text-lg font-semibold mb-2 flex justify-between items-center">
-                            {hasAuthAccount ? "Account Status: Linked" : "No Login Account Linked"}
-                            {hasAuthAccount && formData.email && (
-                                <button
-                                    type="button"
-                                    onClick={handlePasswordReset}
-                                    className="text-sm px-3 py-1 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
-                                >
-                                    Reset Password
-                                </button>
-                            )}
-                        </h3>
-                        {!hasAuthAccount && (
-                            <p className="text-sm text-gray-600">To create a login account, please input email and password. This feature might be better suited for adding new members only.</p>
-                        )}
                     </div>
 
                     <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
@@ -1205,9 +1206,6 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
     const handleDelete = async (member: CommitteeMember) => {
         if (window.confirm(`Are you sure you want to delete ${member.name} from the ${formatCommitteeName(committeeName)}? This cannot be undone.`)) {
             try {
-                if (member.authUid) {
-                    console.warn(`Attempting to delete Firebase Auth user with UID: ${member.authUid}. This should be done via a secure backend function for production.`);
-                }
                 if (member.photoURL) {
                     await deleteOldPhoto(member.photoURL);
                 }
@@ -1311,20 +1309,6 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
                                         <span className="flex-1">{m.termDuration || 'N/A'}</span>
                                     </div>
                                 </div>
-                                
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                    {m.authUid ? (
-                                        <div className="flex items-center text-green-600 text-xs font-semibold">
-                                            <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
-                                            ✓ Login Account Linked
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center text-red-500 text-xs font-semibold">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-                                            ✗ No Login Account
-                                        </div>
-                                    )}
-                                </div>
                             </div>
                         </div>
                     ))
@@ -1358,7 +1342,16 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({ committeeName, coll
 };
 
 // *********** HOABoardContent ***********
-const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEditClick, handleDeleteClick, handleAddNewOfficial, openMenuIndex, setOpenMenuIndex }) => {
+const HOABoardContent: React.FC<HOABoardContentProps> = ({ 
+    officials, 
+    handleEditClick, 
+    handleDeleteClick, 
+    handleAddNewOfficial, 
+    handleLinkAccount, 
+    handleUnlinkAccount,
+    openMenuIndex, 
+    setOpenMenuIndex 
+}) => {
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
@@ -1407,13 +1400,28 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
                                     </button>
 
                                     {openMenuIndex === index && (
-                                        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-xl py-1 z-10 text-gray-800 border border-gray-200">
+                                        <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-xl py-1 z-10 text-gray-800 border border-gray-200">
                                             <button
                                                 onClick={() => handleEditClick(o)}
                                                 className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50"
                                             >
                                                 <Edit2 className="w-4 h-4 mr-2" /> Edit
                                             </button>
+                                            {o.authUid ? (
+                                                <button
+                                                    onClick={() => handleUnlinkAccount(o)}
+                                                    className="flex items-center w-full px-4 py-2 text-sm text-orange-600 hover:bg-orange-50"
+                                                >
+                                                    <Unlink className="w-4 h-4 mr-2" /> Unlink Account
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleLinkAccount(o)}
+                                                    className="flex items-center w-full px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                                                >
+                                                    <Link className="w-4 h-4 mr-2" /> Link Account
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => handleDeleteClick(o)}
                                                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
@@ -1446,21 +1454,16 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({ officials, handleEdit
                                         <span className="font-medium w-20 flex-shrink-0">Term:</span>
                                         <span className="flex-1">{o.termDuration || 'N/A'}</span>
                                     </div>
-                                </div>
-                                
-                                {/* Account Status */}
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                    {o.authUid ? (
-                                        <div className="flex items-center text-green-600 text-xs font-semibold">
-                                            <div className="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
-                                            ✓ Login Account Linked
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center text-red-500 text-xs font-semibold">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-                                            ✗ No Login Account
-                                        </div>
-                                    )}
+                                    <div className="flex items-center">
+                                        <span className="font-medium w-20 flex-shrink-0">Account:</span>
+                                        <span className={`flex-1 text-xs px-2 py-1 rounded-full ${
+                                            o.authUid 
+                                                ? 'bg-green-100 text-green-800 border border-green-200' 
+                                                : 'bg-gray-100 text-gray-800 border border-gray-200'
+                                        }`}>
+                                            {o.authUid ? 'Linked' : 'Not Linked'}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1496,7 +1499,10 @@ const TabContent: React.FC<TabContentProps> = (props) => {
         return <p className="p-4 text-red-500">Invalid committee tab selected.</p>;
     }
 
-    return <CommitteeContent committeeName={props.tab} collectionPath={collectionPath} />;
+    return <CommitteeContent 
+        committeeName={props.tab} 
+        collectionPath={collectionPath}
+    />;
 };
 
 // --- MAIN COMPONENT ---
@@ -1505,16 +1511,13 @@ export default function OffHoa() {
     const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
     const [officialToEdit, setOfficialToEdit] = useState<Official | null>(null);
     const [officialToAdd, setOfficialToAdd] = useState<boolean>(false);
+    const [memberToLink, setMemberToLink] = useState<Official | null>(null);
     const [activeTab, setActiveTab] = useState<TabKey>("Executive officers");
 
     const navigate = useNavigate();
 
     const handleAdminClick = () => {
         navigate('/EditModal');
-    };
-
-    const handleDashboardClick = () => {
-        navigate('/Dashboard');
     };
 
     useEffect(() => {
@@ -1576,9 +1579,6 @@ export default function OffHoa() {
     const handleDeleteClick = async (official: Official) => {
         if (window.confirm(`Are you sure you want to permanently delete the official: ${official.name} (${official.position})? This action cannot be undone.`)) {
             try {
-                if (official.authUid) {
-                    console.warn(`Attempting to delete Firebase Auth user with UID: ${official.authUid}. This should be done via a secure backend function for production.`);
-                }
                 if (official.photoURL) {
                     await deleteOldPhoto(official.photoURL);
                 }
@@ -1591,6 +1591,48 @@ export default function OffHoa() {
             }
         }
         setOpenMenuIndex(null);
+    };
+
+    const handleLinkAccount = (official: Official) => {
+        setMemberToLink(official);
+        setOpenMenuIndex(null);
+    };
+
+    const handleUnlinkAccount = async (official: Official) => {
+        if (window.confirm(`Are you sure you want to unlink the account for ${official.name}? They will no longer be able to log in.`)) {
+            try {
+                const officialRef = doc(db, "elected_officials", official.id);
+                await updateDoc(officialRef, {
+                    authUid: null
+                });
+                
+                // Update local state immediately for better UX
+                setOfficials(prev => prev.map(o => 
+                    o.id === official.id 
+                        ? { ...o, authUid: undefined }
+                        : o
+                ));
+                
+                alert(`Account unlinked successfully for ${official.name}!`);
+            } catch (error) {
+                console.error("Error unlinking account:", error);
+                alert("Failed to unlink account. Please try again.");
+            }
+        }
+        setOpenMenuIndex(null);
+    };
+
+    const handleUpdateOfficial = (officialId: string, updates: Partial<Official>) => {
+        setOfficials(prev => prev.map(official => 
+            official.id === officialId 
+                ? { ...official, ...updates }
+                : official
+        ));
+    };
+
+    const handleLinkSuccess = () => {
+        setMemberToLink(null);
+        // The data will automatically refresh via the onSnapshot listeners
     };
 
     const tabs: TabKey[] = ["Executive officers", "Board of Directors", "Committee officers"];
@@ -1656,6 +1698,8 @@ export default function OffHoa() {
                             handleEditClick={handleEditClick}
                             handleDeleteClick={handleDeleteClick}
                             handleAddNewOfficial={handleAddNewOfficial}
+                            handleLinkAccount={handleLinkAccount}
+                            handleUnlinkAccount={handleUnlinkAccount}
                             openMenuIndex={openMenuIndex}
                             setOpenMenuIndex={setOpenMenuIndex}
                             committeeName={activeTab === "Executive officers" ? "" : activeTab}
@@ -1663,7 +1707,7 @@ export default function OffHoa() {
                         />
                     </div>
 
-                    {/* MODAL */}
+                    {/* MODALS */}
                     {(officialToEdit || officialToAdd) && (
                         <EditOfficialModal
                             official={officialToEdit}
@@ -1673,6 +1717,15 @@ export default function OffHoa() {
                                 setOfficialToEdit(null);
                                 setOfficialToAdd(false);
                             }}
+                        />
+                    )}
+
+                    {memberToLink && (
+                        <LinkAccountModal
+                            member={memberToLink}
+                            onClose={() => setMemberToLink(null)}
+                            onLinkSuccess={handleLinkSuccess}
+                            onUpdateOfficial={handleUpdateOfficial}
                         />
                     )}
                 </div>

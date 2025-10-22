@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { Search, Download, Pencil, Trash, Plus, RotateCcw, UserCircle, Share } from "lucide-react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { Search, Download, Pencil, Trash, Plus, RotateCcw, UserCircle, Share, LogOut } from "lucide-react";
 import { auth, db } from "../../Firebase";
-import { collection, getDocs, setDoc, doc, updateDoc, query, orderBy } from "firebase/firestore";
-import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { collection, getDocs, setDoc, doc, updateDoc, query, orderBy, getDoc } from "firebase/firestore";
+import { createUserWithEmailAndPassword, sendEmailVerification, onAuthStateChanged, signOut } from "firebase/auth";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -139,6 +139,13 @@ interface NewMemberForm {
   status: string;
 }
 
+interface UserSession {
+  uid: string;
+  email: string;
+  role: string;
+  isAdmin: boolean;
+}
+
 const COLUMN_KEYS = [
   { label: "Acc. No.", key: "accNo" },
   { label: "Surname", key: "surname" },
@@ -200,6 +207,73 @@ const getNextAccNo = async (): Promise<string> => {
   } catch (error) {
     console.error("Error generating next account number:", error);
     return `E${Date.now().toString().slice(-4)}`;
+  }
+};
+
+// Custom hook for authentication
+const useAuth = () => {
+  const [userSession, setUserSession] = useState<UserSession | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const getUserRole = async (userId: string): Promise<string> => {
+    try {
+      // Check admin collection first
+      const adminDoc = await getDoc(doc(db, "admin", userId));
+      if (adminDoc.exists()) return "Admin";
+      
+      // Check elected_officials collection  
+      const officerDoc = await getDoc(doc(db, "elected_officials", userId));
+      if (officerDoc.exists()) return "Officer";
+      
+      // Default to member
+      return "Member";
+    } catch (error) {
+      console.error("Error getting user role:", error);
+      return "Member";
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const role = await getUserRole(user.uid);
+        const sessionData: UserSession = {
+          uid: user.uid,
+          email: user.email || '',
+          role: role,
+          isAdmin: role === "Admin"
+        };
+        setUserSession(sessionData);
+        console.log("🔄 User session updated:", sessionData);
+      } else {
+        setUserSession(null);
+        console.log("No user logged in");
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return { userSession, loading };
+};
+
+// Session validation helper
+const validateAdminSession = async (): Promise<boolean> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    console.error("❌ No user logged in");
+    return false;
+  }
+  
+  try {
+    const adminDoc = await getDoc(doc(db, "admin", currentUser.uid));
+    const isAdmin = adminDoc.exists();
+    console.log("🔐 Admin session validation:", isAdmin, "User:", currentUser.email);
+    return isAdmin;
+  } catch (error) {
+    console.error("Error validating admin session:", error);
+    return false;
   }
 };
 
@@ -403,14 +477,14 @@ const AccReg: React.FC = () => {
   const [showPasswordInfo, setShowPasswordInfo] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"active" | "deleted">("active");
-  const functions = getFunctions(); 
-
   const [isEditing, setIsEditing] = useState(false);
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  const membersPerPage = 10;
-
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  const { userSession, loading } = useAuth();
   const navigate = useNavigate();
+  const membersPerPage = 10;
 
   const handleAdminClick = () => {
     navigate('/EditModal');
@@ -418,6 +492,15 @@ const AccReg: React.FC = () => {
 
   const handleDashboardClick = () => {
     navigate('/Dashboard');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate('/login');
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
   };
 
   const fetchMembers = async () => {
@@ -459,9 +542,17 @@ const AccReg: React.FC = () => {
     setCurrentMemberId(null);
     setErrorMessage(null);
     setShowPasswordInfo(false);
+    setIsProcessing(false);
   };
 
-  const handleOpenCreateModal = () => {
+  const handleOpenCreateModal = async () => {
+    // Validate admin session before opening modal
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      setErrorMessage("Admin session expired. Please log in again.");
+      return;
+    }
+    
     resetFormAndState();
     setShowModal(true);
   };
@@ -492,7 +583,18 @@ const AccReg: React.FC = () => {
   const startIndex = (currentPage - 1) * membersPerPage;
   const currentMembers = filteredMembers.slice(startIndex, startIndex + membersPerPage);
 
+  const getRoleOptions = useCallback(() => {
+    if (!userSession) return ["Member"];
+    return userSession.isAdmin ? ["Member", "Officer", "Admin"] : ["Member"];
+  }, [userSession]);
+
   const handleDeleteMember = async (memberId: string, memberName: string) => {
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      alert("Admin session expired. Please log in again.");
+      return;
+    }
+
     if (
       !window.confirm(
         `Are you sure you want to soft-delete the account for ${memberName}? \n\nThis will mark the account as 'Deleted' and remove it from the main list, but their historical data will be preserved and can be restored.`
@@ -512,6 +614,12 @@ const AccReg: React.FC = () => {
   };
 
   const handleRestoreMember = async (memberId: string, memberName: string) => {
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      alert("Admin session expired. Please log in again.");
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to RESTORE the account for ${memberName}?`)) return;
 
     try {
@@ -527,7 +635,13 @@ const AccReg: React.FC = () => {
     }
   };
 
-  const handleEditClick = (member: MemberData) => {
+  const handleEditClick = async (member: MemberData) => {
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      setErrorMessage("Admin session expired. Please log in again.");
+      return;
+    }
+
     setForm({
       surname: member.surname || "",
       firstname: member.firstname || "",
@@ -553,9 +667,18 @@ const AccReg: React.FC = () => {
   const handleUpdateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setIsProcessing(true);
+
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      setErrorMessage("Admin session expired. Please log in again.");
+      setIsProcessing(false);
+      return;
+    }
 
     if (!currentMemberId) {
       setErrorMessage("Error: No member selected for update.");
+      setIsProcessing(false);
       return;
     }
 
@@ -578,10 +701,19 @@ const AccReg: React.FC = () => {
 
       const accNo = members.find((m) => m.id === currentMemberId)?.accNo;
 
+      // Update role-specific collections
       if (form.role === "Admin") {
         await setDoc(doc(db, "admin", currentMemberId), { ...memberData, accNo }, { merge: true });
+        // Remove from other role collections
+        await updateDoc(doc(db, "elected_officials", currentMemberId), { role: "Member" });
       } else if (form.role === "Officer") {
         await setDoc(doc(db, "elected_officials", currentMemberId), { ...memberData, accNo }, { merge: true });
+        // Remove from admin if demoted
+        await updateDoc(doc(db, "admin", currentMemberId), { role: "Member" });
+      } else {
+        // Remove from role-specific collections if demoted to member
+        await updateDoc(doc(db, "admin", currentMemberId), { role: "Member" });
+        await updateDoc(doc(db, "elected_officials", currentMemberId), { role: "Member" });
       }
 
       alert(`Account for ${form.firstname} ${form.surname} updated successfully!`);
@@ -593,81 +725,125 @@ const AccReg: React.FC = () => {
     } catch (err: any) {
       console.error("Error updating member:", err);
       setErrorMessage(err.message || "Failed to update account. Check console and Security Rules.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleCreateAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage(null);
+  // 🔥 DELETE THE OLD handleCreateAccount FUNCTION AND REPLACE WITH THIS:
+
+const handleCreateAccount = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setErrorMessage(null);
+  setIsProcessing(true);
+  
+  const isValidSession = await validateAdminSession();
+  if (!isValidSession) {
+    setErrorMessage("Admin session expired. Please log in again.");
+    setIsProcessing(false);
+    return;
+  }
+  
+  if (form.password !== form.confirm) {
+    setShowPasswordInfo(true);
+    setErrorMessage("Passwords do not match! Please check and try again.");
+    setIsProcessing(false);
+    return;
+  }
+  if (!isStrongPassword(form.password)) {
+    setShowPasswordInfo(true);
+    setErrorMessage(
+      "Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character."
+    );
+    setIsProcessing(false);
+    return;
+  }
+  if (!isValidEmail(form.email)) {
+    setErrorMessage("Please enter a valid and acceptable email address (e.g., user@domain.com).");
+    setIsProcessing(false);
+    return;
+  }
+
+  try {
+    const newAccNo = await getNextAccNo();
+
+    const memberData = {
+      surname: form.surname,
+      firstname: form.firstname,
+      middlename: form.middlename,
+      dob: form.dob,
+      address: form.address,
+      contact: form.contact,
+      email: form.email,
+      civilStatus: form.civilStatus,
+      role: form.role,
+      status: form.status || "New",
+      accNo: newAccNo,
+    };
+
+    // 🔥 USE CLOUD FUNCTION - NO MORE SESSION CHANGE!
+    const functions = getFunctions();
+    const createUserAccount = httpsCallable(functions, 'createUserAccount');
     
-    if (form.password !== form.confirm) {
-      setShowPasswordInfo(true);
-      setErrorMessage("Passwords do not match! Please check and try again.");
-      return;
+    const result = await createUserAccount({
+      userData: memberData,
+      password: form.password
+    });
+
+    console.log("✅ User created via cloud function:", result.data);
+
+    alert(`Account created successfully! Role: ${form.role} Account No: ${newAccNo} 🎉`);
+    
+    setShowModal(false);
+    resetFormAndState();
+    fetchMembers();
+    
+  } catch (err: any) {
+    console.error("❌ Cloud function error:", err);
+    let errorText = "An unknown error occurred.";
+    
+    if (err.code === 'permission-denied') {
+      errorText = "Error: You don't have permission to create accounts. Admin access required.";
+    } else if (err.code === 'unauthenticated') {
+      errorText = "Error: Please log in again.";
+    } else if (err.code === 'already-exists') {
+      errorText = "Error: Email already in use.";
+    } else if (err.message) {
+      errorText = err.message;
     }
-    if (!isStrongPassword(form.password)) {
-      setShowPasswordInfo(true);
-      setErrorMessage(
-        "Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character."
-      );
-      return;
+    
+    setErrorMessage(errorText);
+    setShowPasswordInfo(true);
+  } finally {
+    setIsProcessing(false);
+  }
+};
+
+// 🔥 OPTIONAL: Add test function (ilagay sa loob ng AccReg component)
+const testCloudFunction = async () => {
+  try {
+    const functions = getFunctions();
+    const testFunction = httpsCallable(functions, 'testHoaFunction');
+    const result = await testFunction({});
+    console.log("✅ Cloud Function Result:", result.data);
+    
+    // Safe type access
+    const resultData = result.data as { message?: string };
+    alert("SUCCESS: " + (resultData.message || "Function working!"));
+  } catch (error: unknown) {
+    console.error("❌ Cloud Function Error:", error);
+    
+    // Safe error message access
+    let errorMessage = "Unknown error occurred";
+    if (error && typeof error === 'object' && 'message' in error) {
+      errorMessage = (error as any).message;
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
     }
-    if (!isValidEmail(form.email)) {
-      setErrorMessage("Please enter a valid and acceptable email address (e.g., user@domain.com).");
-      return;
-    }
-    try {
-      const newAccNo = await getNextAccNo();
-
-      const userCred = await createUserWithEmailAndPassword(auth, form.email, form.password);
-      const user = userCred.user;
-      const uid = user.uid;
-
-      await sendEmailVerification(user);
-
-      const memberData = {
-        surname: form.surname,
-        firstname: form.firstname,
-        middlename: form.middlename,
-        dob: form.dob,
-        address: form.address,
-        contact: form.contact,
-        email: form.email,
-        civilStatus: form.civilStatus,
-        role: form.role,
-        status: form.status || "New",
-        accNo: newAccNo,
-      };
-
-      await setDoc(doc(db, "members", uid), memberData);
-
-      if (form.role === "Admin") {
-        await setDoc(doc(db, "admin", uid), memberData);
-      } else if (form.role === "Officer") {
-        await setDoc(doc(db, "elected_officials", uid), memberData);
-      }
-
-      alert(`Account created successfully! A verification email has been sent to ${form.email}. Role: ${form.role} Account No: ${newAccNo} 🎉`);
-      setShowModal(false);
-      setTimeout(() => {
-        resetFormAndState();
-      }, 100);
-      fetchMembers();
-      setViewMode("active");
-    } catch (err: any) {
-      console.error(err);
-      let errorText = "An unknown error occurred.";
-      if (err.code === "auth/email-already-in-use") {
-        errorText = "Error: The email address is already in use by another account.";
-      } else if (err.code === "auth/invalid-email") {
-        errorText = "Error: The email address is not valid.";
-      } else if (err.message) {
-        errorText = err.message;
-      }
-      setErrorMessage(errorText);
-      setShowPasswordInfo(true);
-    }
-  };
+    
+    alert("ERROR: " + errorMessage);
+  }
+};
 
   return (
     <div className="">
@@ -688,13 +864,30 @@ const AccReg: React.FC = () => {
             <Share size={20} /> 
           </button>
 
-          {/* ADMIN BUTTON: Navigation Handler */}
-          <div 
-            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
-            onClick={handleAdminClick} 
-          >
-            <UserCircle size={32} />
-            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+          {/* User Info and Logout */}
+          <div className="flex items-center space-x-3">
+            <div className="text-right">
+              <p className="text-sm font-medium">{userSession?.email}</p>
+              <p className="text-xs text-gray-300">Role: {userSession?.role}</p>
+            </div>
+            
+            {/* ADMIN BUTTON: Navigation Handler */}
+            <div 
+              className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+              onClick={handleAdminClick} 
+            >
+              <UserCircle size={32} />
+              <span className="text-sm font-medium hidden sm:inline">Admin</span>
+            </div>
+
+            {/* Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-full hover:bg-white/20 transition-colors"
+              title="Logout"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </header>
@@ -734,6 +927,7 @@ const AccReg: React.FC = () => {
           <button
             onClick={handleOpenCreateModal}
             className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-emerald-700 rounded-full hover:bg-emerald-800"
+            disabled={isProcessing}
           >
             <Plus size={16} /> Create Acc.
           </button>
@@ -808,13 +1002,19 @@ const AccReg: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                       {viewMode === "active" ? (
                         <div className="flex items-center justify-center space-x-2">
-                          <button onClick={() => handleEditClick(member)} className="text-emerald-600 hover:text-emerald-900" title="Edit Account">
+                          <button 
+                            onClick={() => handleEditClick(member)} 
+                            className="text-emerald-600 hover:text-emerald-900" 
+                            title="Edit Account"
+                            disabled={isProcessing}
+                          >
                             <Pencil size={18} />
                           </button>
                           <button
                             onClick={() => handleDeleteMember(member.id, `${member.firstname} ${member.surname}`)}
                             className="text-red-600 hover:text-red-900"
                             title="Soft Delete Account"
+                            disabled={isProcessing}
                           >
                             <Trash size={18} />
                           </button>
@@ -824,6 +1024,7 @@ const AccReg: React.FC = () => {
                           onClick={() => handleRestoreMember(member.id, `${member.firstname} ${member.surname}`)}
                           className="text-blue-600 hover:text-blue-900 flex items-center gap-1"
                           title="Restore Account"
+                          disabled={isProcessing}
                         >
                           <RotateCcw size={18} /> Restore
                         </button>
@@ -949,26 +1150,14 @@ const AccReg: React.FC = () => {
                   options={["Single", "Married", "Divorced", "Widowed"]} 
                 />
                 
-                {isEditing ? (
-                  <FloatingInput 
-                    id="role" 
-                    label="Role in HOA" 
-                    required 
-                    value={form.role} 
-                    onChange={() => {}} 
-                    type="text" 
-                    className="pointer-events-none bg-gray-100"
-                  />
-                ) : (
-                  <FloatingSelect 
-                    id="role" 
-                    label="Role in HOA" 
-                    required 
-                    value={form.role} 
-                    onChange={(v) => setForm({ ...form, role: v })} 
-                    options={["Member"]} 
-                  />
-                )}
+                <FloatingSelect 
+                  id="role" 
+                  label="Role in HOA" 
+                  required 
+                  value={form.role} 
+                  onChange={(v) => setForm({ ...form, role: v })} 
+                  options={getRoleOptions()} 
+                />
                 
                 {isEditing && (
                   <FloatingSelect 
@@ -977,7 +1166,7 @@ const AccReg: React.FC = () => {
                     required 
                     value={form.status} 
                     onChange={(v) => setForm({ ...form, status: v })} 
-                    options={form.status === "Active" ? ["Active"] : ["Active", "New"]} 
+                    options={["Active", "Inactive", "New"]} 
                   />
                 )}
                 
@@ -1014,11 +1203,16 @@ const AccReg: React.FC = () => {
                   type="button" 
                   className="px-4 py-2 rounded-md text-sm hover:bg-gray-200" 
                   onClick={handleCloseModal}
+                  disabled={isProcessing}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-2 rounded-md text-sm bg-emerald-700 text-white hover:bg-emerald-800">
-                  {isEditing ? "Update Account" : "Create Account"}
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 rounded-md text-sm bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-50"
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? "Processing..." : (isEditing ? "Update Account" : "Create Account")}
                 </button>
               </div>
             </form>
