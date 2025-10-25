@@ -5,6 +5,8 @@ import { db, storage } from "../Firebase";
 import { collection, query, onSnapshot, getDocs, Timestamp, doc, writeBatch, where,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 
 // The Candidate type reflects the data to be saved to Firestore
 type Candidate = {
@@ -91,6 +93,13 @@ export default function ElectionDashboard() {
     voted: 0,    // Only votes from Active members
     notVoted: 0, // Only Active members who haven't voted
   });
+
+  // Navigation hook
+  const navigate = useNavigate();
+
+  const handleAdminClick = () => {
+    navigate('/EditModal');
+  };
   
   // Function to fetch active members count
   const fetchActiveMembers = async () => {
@@ -546,177 +555,199 @@ export default function ElectionDashboard() {
   }, [allCandidatesFromFirestore]);
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="bg-teader h-20 flex items-center px-8">
-        <h1 className="text-3xl font-extrabold text-white">Election Module</h1>
-        <div className="ml-auto flex items-center gap-4">
-          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white">
-            A
+    <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* UPDATED HEADER - Same as Dashboard */}
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+        
+        {/* Page Title - Left Side */}
+        <div className="flex items-center space-x-4">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Election Module</h1>
+        </div>
+
+        {/* Empty Center for Balance */}
+        <div className="flex-1"></div>
+
+        {/* Profile/User Icon on the Right */}
+        <div className="flex items-center space-x-3">
+          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+            <ShareIcon className="h-5 w-5" /> 
+          </button>
+
+          {/* ADMIN BUTTON: Navigation Handler */}
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+            onClick={handleAdminClick} 
+          >
+            <UserCircleIcon className="h-8 w-8 text-white" />
+            <span className="text-sm font-medium hidden sm:inline">Admin</span>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="container mx-auto px-6 py-8">
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <div className="bg-object text-gray-100 px-6 py-4 flex items-center justify-between">
-            <div className="font-semibold">Election Status</div>
-            <div className="flex items-center gap-3">
-              <select
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
-                className="bg-object text-white px-3 py-1 rounded border border-gray-600"
-              >
-                <option value={2025}>2025</option>
-                <option value={2024}>2024</option>
-                <option value={2023}>2023</option>
-              </select>
-              <button
-                onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 bg-emerald-700 text-white px-3 py-1 rounded shadow disabled:bg-gray-500"
-                disabled={electionAlreadyExists}
-              >
-                <FiPlus /> New Election
-              </button>
-            </div>
-          </div>
-
-          <div className="p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
-              <div className="relative bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                <div className="border-l-4 border-amber-400 pl-4">
-                  <div className="text-sm text-amber-500">Total Voters</div>
-                  <div className="text-2xl font-semibold">
-                    {voterStats.total}
-                  </div>
-                </div>
-                <div className="ml-auto text-3xl text-amber-400">
-                  <FaUsers />
-                </div>
-              </div>
-
-              <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                <div className="border-l-4 border-emerald-700 pl-4">
-                  <div className="text-sm text-emerald-700">Voted</div>
-                  <div className="text-2xl font-semibold">
-                    {voterStats.voted}
-                  </div>
-                </div>
-                <div className="ml-auto text-3xl text-emerald-700">
-                  <FaCheckCircle />
-                </div>
-              </div>
-
-              <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                <div className="border-l-4 border-red-500 pl-4">
-                  <div className="text-sm text-red-500">Not Voted</div>
-                  <div className="text-2xl font-semibold">
-                    {voterStats.notVoted}
-                  </div>
-                </div>
-                <div className="ml-auto text-3xl text-red-500">
-                  <FiXCircle />
-                </div>
-              </div>
-
-              <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                <div className="border-l-4 border-gray-400 pl-4">
-                  <div className="text-sm text-gray-600">Voting Duration</div>
-                  <div className="text-2xl font-semibold">
-                    {formatDuration(durationSeconds)}
-                  </div>
-                </div>
-                <div className="ml-auto text-3xl text-gray-600">
-                  <FiClock />
-                </div>
+      {/* MAIN CONTENT */}
+      <main className="flex-1 overflow-auto p-6">
+        <div className="space-y-6">
+          <div className="bg-white shadow rounded-lg overflow-hidden">
+            <div className="bg-object text-gray-100 px-6 py-4 flex items-center justify-between">
+              <div className="font-semibold">Election Status</div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={year}
+                  onChange={(e) => setYear(Number(e.target.value))}
+                  className="bg-object text-white px-3 py-1 rounded border border-gray-600"
+                >
+                  <option value={2025}>2025</option>
+                  <option value={2024}>2024</option>
+                  <option value={2023}>2023</option>
+                </select>
+                <button
+                  onClick={() => setShowForm(true)}
+                  className="flex items-center gap-2 bg-emerald-700 text-white px-3 py-1 rounded shadow disabled:bg-gray-500"
+                  disabled={electionAlreadyExists}
+                >
+                  <FiPlus /> New Election
+                </button>
               </div>
             </div>
 
-            <div className="mt-8 bg-white border rounded shadow-sm flex">
-              <aside className="w-48 bg-object text-white p-6">
-                <nav className="flex flex-col gap-6 text-sm">
-                  {allPositions.map((position) => (
-                    <button
-                      key={position}
-                      onClick={() => setActivePosition(position)}
-                      className={`text-left ${
-                        activePosition === position
-                          ? "font-bold text-emerald-300"
-                          : "text-white hover:text-emerald-300/80 transition"
-                      }`}
-                    >
-                      {position}
-                    </button>
-                  ))}
-                </nav>
-              </aside>
+            <div className="p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+                <div className="relative bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
+                  <div className="border-l-4 border-amber-400 pl-4">
+                    <div className="text-sm text-amber-500">Total Voters</div>
+                    <div className="text-2xl font-semibold">
+                      {voterStats.total}
+                    </div>
+                  </div>
+                  <div className="ml-auto text-3xl text-amber-400">
+                    <FaUsers />
+                  </div>
+                </div>
 
-              <div className="flex-1 p-6">
-                <div className="flex items-start justify-between">
-                  <h2 className="text-xl font-semibold">
-                    {activeElectionTitle 
-                      ? `${activeElectionTitle} - ${year}` 
-                      : `Voting Count Election ${year}`
-                    }
-                  </h2>
-                  <div>
-                    {votingActive && (
-                        <button
-                          onClick={handleStopVoting}
-                          className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
-                          disabled={!votingActive || isSubmitting}
-                        >
-                          <FiXCircle /> Stop Voting
-                        </button>
+                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
+                  <div className="border-l-4 border-emerald-700 pl-4">
+                    <div className="text-sm text-emerald-700">Voted</div>
+                    <div className="text-2xl font-semibold">
+                      {voterStats.voted}
+                    </div>
+                  </div>
+                  <div className="ml-auto text-3xl text-emerald-700">
+                    <FaCheckCircle />
+                  </div>
+                </div>
+
+                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
+                  <div className="border-l-4 border-red-500 pl-4">
+                    <div className="text-sm text-red-500">Not Voted</div>
+                    <div className="text-2xl font-semibold">
+                      {voterStats.notVoted}
+                    </div>
+                  </div>
+                  <div className="ml-auto text-3xl text-red-500">
+                    <FiXCircle />
+                  </div>
+                </div>
+
+                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
+                  <div className="border-l-4 border-gray-400 pl-4">
+                    <div className="text-sm text-gray-600">Voting Duration</div>
+                    <div className="text-2xl font-semibold">
+                      {formatDuration(durationSeconds)}
+                    </div>
+                  </div>
+                  <div className="ml-auto text-3xl text-gray-600">
+                    <FiClock />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 bg-white border rounded shadow-sm flex">
+                <aside className="w-48 bg-object text-white p-6">
+                  <nav className="flex flex-col gap-6 text-sm">
+                    {allPositions.map((position) => (
+                      <button
+                        key={position}
+                        onClick={() => setActivePosition(position)}
+                        className={`text-left ${
+                          activePosition === position
+                            ? "font-bold text-emerald-300"
+                            : "text-white hover:text-emerald-300/80 transition"
+                        }`}
+                      >
+                        {position}
+                      </button>
+                    ))}
+                  </nav>
+                </aside>
+
+                <div className="flex-1 p-6">
+                  <div className="flex items-start justify-between">
+                    <h2 className="text-xl font-semibold">
+                      {activeElectionTitle 
+                        ? `${activeElectionTitle} - ${year}` 
+                        : `Voting Count Election ${year}`
+                      }
+                    </h2>
+                    <div>
+                      {votingActive && (
+                          <button
+                            onClick={handleStopVoting}
+                            className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
+                            disabled={!votingActive || isSubmitting}
+                          >
+                            <FiXCircle /> Stop Voting
+                          </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 bg-gray-50 border rounded p-8 shadow-inner">
+                    {filteredCandidates.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start text-center">
+                        {filteredCandidates.map((c) => (
+                          <div
+                            key={c.id}
+                            className="flex flex-col items-center gap-4 bg-white p-4 rounded-lg shadow"
+                          >
+                            {c.photoURL ? (
+                              <img
+                                src={c.photoURL}
+                                alt={c.name}
+                                className="w-40 h-40 rounded-full object-cover border-4 border-emerald-500"
+                              />
+                            ) : (
+                              <div className="w-40 h-40 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-500">
+                                No Image
+                              </div>
+                            )}
+                            <div className="text-lg font-bold">{c.name}</div>
+                            <div className="text-sm text-gray-600 font-medium">{c.position}</div>
+                            <div className="w-36 bg-emerald-100 border border-emerald-300 rounded-md py-3 text-2xl font-bold text-emerald-800">
+                              {c.votes}
+                            </div>
+                            <div className="text-sm text-gray-500">Votes</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-500 p-8">
+                        {votingActive ? (
+                            <>
+                              <p className="text-xl font-medium">Walang kandidato para sa posisyon na ito.</p>
+                              <p className="text-sm mt-2">Pumili ng ibang posisyon sa kaliwa.</p>
+                            </>
+                        ) : (
+                            <p className="text-xl font-medium">Walang aktibong eleksyon. Pindutin ang "New Election" para magsimula.</p>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
-
-                <div className="mt-6 bg-gray-50 border rounded p-8 shadow-inner">
-                  {filteredCandidates.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start text-center">
-                      {filteredCandidates.map((c) => (
-                        <div
-                          key={c.id}
-                          className="flex flex-col items-center gap-4 bg-white p-4 rounded-lg shadow"
-                        >
-                          {c.photoURL ? (
-                            <img
-                              src={c.photoURL}
-                              alt={c.name}
-                              className="w-40 h-40 rounded-full object-cover border-4 border-emerald-500"
-                            />
-                          ) : (
-                            <div className="w-40 h-40 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-500">
-                              No Image
-                            </div>
-                          )}
-                          <div className="text-lg font-bold">{c.name}</div>
-                          <div className="text-sm text-gray-600 font-medium">{c.position}</div>
-                          <div className="w-36 bg-emerald-100 border border-emerald-300 rounded-md py-3 text-2xl font-bold text-emerald-800">
-                            {c.votes}
-                          </div>
-                          <div className="text-sm text-gray-500">Votes</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center text-gray-500 p-8">
-                      {votingActive ? (
-                          <>
-                            <p className="text-xl font-medium">Walang kandidato para sa posisyon na ito.</p>
-                            <p className="text-sm mt-2">Pumili ng ibang posisyon sa kaliwa.</p>
-                          </>
-                      ) : (
-                          <p className="text-xl font-medium">Walang aktibong eleksyon. Pindutin ang "New Election" para magsimula.</p>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

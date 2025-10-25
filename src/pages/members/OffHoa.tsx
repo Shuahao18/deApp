@@ -4,7 +4,7 @@ import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, addD
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { Plus, MoreVertical, Edit2, X, Link, Unlink } from 'lucide-react';
-import { UserCircleIcon } from '@heroicons/react/24/outline';
+import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 
 // --- INTERFACES ---
@@ -1638,38 +1638,40 @@ export default function OffHoa() {
     const tabs: TabKey[] = ["Executive officers", "Board of Directors", "Committee officers"];
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
-            {/* IMPROVED HEADER */}
-            <header className="w-full bg-gradient-to-r from-green-700 to-green-800 text-white shadow-lg">
-                <div className="container mx-auto px-6 py-4">
-                    <div className="flex justify-between items-center">
-                        {/* Left Side - Title */}
-                        <div className="flex items-center space-x-4">
-                            <h1 className="text-xl font-bold font-Montserrat">HOA Officials</h1>
-                        </div>
+        <div className="min-h-screen bg-gray-100 flex flex-col">
+            {/* UPDATED HEADER - Same as Dashboard */}
+            <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+                
+                {/* Page Title - Left Side */}
+                <div className="flex items-center space-x-4">
+                    <h1 className="text-sm font-Montserrat font-extrabold text-yel ">HOA Officials</h1>
+                </div>
 
-                        {/* Center - Empty for balance */}
-                        <div className="flex-1"></div>
+                {/* Empty Center for Balance */}
+                <div className="flex-1"></div>
 
-                        {/* Right Side - User Actions */}
-                        <div className="flex items-center space-x-4">
-                            <button 
-                                className="flex items-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg transition-all duration-200"
-                                onClick={handleAdminClick}
-                            >
-                                <UserCircleIcon className="h-5 w-5" />
-                                <span className="text-sm font-medium">Admin Panel</span>
-                            </button>
-                        </div>
+                {/* Profile/User Icon on the Right */}
+                <div className="flex items-center space-x-3">
+                    <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+                        <ShareIcon className="h-5 w-5" /> 
+                    </button>
+
+                    {/* ADMIN BUTTON: Navigation Handler */}
+                    <div 
+                        className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
+                        onClick={handleAdminClick} 
+                    >
+                        <UserCircleIcon className="h-8 w-8 text-white" />
+                        <span className="text-sm font-medium hidden sm:inline">Admin</span>
                     </div>
                 </div>
             </header>
 
             {/* MAIN CONTENT */}
-            <div className="flex-1 overflow-auto py-6">
-                <div className="container mx-auto px-6">
-                    {/* ENHANCED TABS */}
-                    <div className="bg-white rounded-xl shadow-sm p-1 mb-8 border border-gray-200">
+            <main className="flex-1 overflow-auto p-6">
+                <div className="space-y-6">
+                    {/* Tabs Section */}
+                    <div className="bg-white rounded-xl shadow-sm p-1 mb-6 border border-gray-200">
                         <nav className="flex">
                             {tabs.map((tab) => (
                                 <button
@@ -1679,8 +1681,8 @@ export default function OffHoa() {
                                         flex-1 py-3 px-4 text-center font-medium text-sm transition-all duration-200 rounded-lg mx-1
                                         ${
                                             activeTab === tab
-                                                ? "bg-green-600 text-white shadow-md"
-                                                : "text-gray-600 hover:text-green-700 hover:bg-gray-100"
+                                                ? "bg-[#007963] text-white shadow-md"
+                                                : "text-gray-600 hover:text-[#007963] hover:bg-gray-100"
                                         }
                                     `}
                                 >
@@ -1690,7 +1692,7 @@ export default function OffHoa() {
                         </nav>
                     </div>
 
-                    {/* CONTENT AREA */}
+                    {/* Content Area */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                         <TabContent
                             tab={activeTab}
@@ -1729,7 +1731,7 @@ export default function OffHoa() {
                         />
                     )}
                 </div>
-            </div>
+            </main>
         </div>
     );
 }

@@ -1231,7 +1231,7 @@ export default function App() {
                                                 : "bg-green-600 hover:bg-green-700 text-white"
                                         }`}
                                     >
-                                        {isUploading ? "Uploading..." : "Upload"}
+                                        {isUploading ? "Posting..." : "Post"}
                                     </button>
                                 </div>
                             </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { Search, Download, Pencil, Trash, Plus, RotateCcw, UserCircle, Share, LogOut } from "lucide-react";
+import { Search, Download, Pencil, Trash, Plus, RotateCcw, UserCircle, Share, Eye, EyeOff } from "lucide-react";
 import { auth, db } from "../../Firebase";
 import { collection, getDocs, setDoc, doc, updateDoc, query, orderBy, getDoc } from "firebase/firestore";
 import { createUserWithEmailAndPassword, sendEmailVerification, onAuthStateChanged, signOut } from "firebase/auth";
@@ -52,6 +52,95 @@ const FloatingInput: React.FC<FloatingInputProps> = ({
         {right}
       </span>
     )}
+    <label
+      htmlFor={id}
+      className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all 
+               top-2 text-xs peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 
+               peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs peer-focus:text-emerald-700"
+    >
+      {label}
+      {required && <span className="text-red-600"> *</span>}
+    </label>
+  </div>
+);
+
+// NEW: Floating Date Input Component
+const FloatingDateInput: React.FC<BaseFieldProps> = ({
+  id,
+  label,
+  required,
+  value,
+  onChange,
+  className = "",
+}) => {
+  const formatDateForInput = (dateString: string) => {
+    if (!dateString) return '';
+    // Convert YYYY-MM-DD to display format or keep as is
+    return dateString;
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  };
+
+  return (
+    <div className={`relative ${className}`}>
+      <input
+        id={id}
+        type="date"
+        value={formatDateForInput(value)}
+        onChange={handleDateChange}
+        placeholder=" "
+        className="peer w-full h-16 rounded-xl border-2 border-gray-400 px-4 pt-4 pb-2 outline-none 
+                 focus:border-emerald-700 transition appearance-none"
+      />
+      <label
+        htmlFor={id}
+        className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all 
+                 top-2 text-xs peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 
+                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs peer-focus:text-emerald-700"
+      >
+        {label}
+        {required && <span className="text-red-600"> *</span>}
+      </label>
+    </div>
+  );
+};
+
+// NEW: Floating Password Input with Show/Hide
+const FloatingPasswordInput: React.FC<BaseFieldProps & {
+  onToggleVisibility: () => void;
+  showPassword: boolean;
+}> = ({
+  id,
+  label,
+  required,
+  value,
+  onChange,
+  className = "",
+  onToggleVisibility,
+  showPassword,
+  onFocus,
+  onBlur,
+}) => (
+  <div className={`relative ${className}`}>
+    <input
+      id={id}
+      type={showPassword ? "text" : "password"}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      placeholder=" "
+      className="peer w-full h-16 rounded-xl border-2 border-gray-400 px-4 pt-4 pb-2 pr-12 outline-none focus:border-emerald-700 transition"
+    />
+    <button
+      type="button"
+      onClick={onToggleVisibility}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+    >
+      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+    </button>
     <label
       htmlFor={id}
       className="pointer-events-none absolute left-4 px-1 bg-white text-gray-700 transition-all 
@@ -481,6 +570,9 @@ const AccReg: React.FC = () => {
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  // NEW: State for password visibility
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const { userSession, loading } = useAuth();
   const navigate = useNavigate();
@@ -492,15 +584,6 @@ const AccReg: React.FC = () => {
 
   const handleDashboardClick = () => {
     navigate('/Dashboard');
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigate('/login');
-    } catch (error) {
-      console.error("Error signing out:", error);
-    }
   };
 
   const fetchMembers = async () => {
@@ -536,6 +619,7 @@ const AccReg: React.FC = () => {
     fetchMembers();
   }, []);
 
+  // UPDATED: Reset function to clear all form fields
   const resetFormAndState = () => {
     setForm(defaultForm);
     setIsEditing(false);
@@ -543,6 +627,9 @@ const AccReg: React.FC = () => {
     setErrorMessage(null);
     setShowPasswordInfo(false);
     setIsProcessing(false);
+    // NEW: Reset password visibility
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const handleOpenCreateModal = async () => {
@@ -583,10 +670,19 @@ const AccReg: React.FC = () => {
   const startIndex = (currentPage - 1) * membersPerPage;
   const currentMembers = filteredMembers.slice(startIndex, startIndex + membersPerPage);
 
+  // REMOVED: Officer and Admin roles from options
   const getRoleOptions = useCallback(() => {
-    if (!userSession) return ["Member"];
-    return userSession.isAdmin ? ["Member", "Officer", "Admin"] : ["Member"];
-  }, [userSession]);
+    return ["Member"];
+  }, []);
+
+  // NEW: Function to get status options based on current status
+  const getStatusOptions = useCallback((currentStatus: string) => {
+    if (currentStatus === "Active") {
+      // Once set to Active, cannot go back to New
+      return ["Active"];
+    }
+    return ["New", "Active"];
+  }, []);
 
   const handleDeleteMember = async (memberId: string, memberName: string) => {
     const isValidSession = await validateAdminSession();
@@ -701,26 +797,14 @@ const AccReg: React.FC = () => {
 
       const accNo = members.find((m) => m.id === currentMemberId)?.accNo;
 
-      // Update role-specific collections
-      if (form.role === "Admin") {
-        await setDoc(doc(db, "admin", currentMemberId), { ...memberData, accNo }, { merge: true });
-        // Remove from other role collections
-        await updateDoc(doc(db, "elected_officials", currentMemberId), { role: "Member" });
-      } else if (form.role === "Officer") {
-        await setDoc(doc(db, "elected_officials", currentMemberId), { ...memberData, accNo }, { merge: true });
-        // Remove from admin if demoted
-        await updateDoc(doc(db, "admin", currentMemberId), { role: "Member" });
-      } else {
-        // Remove from role-specific collections if demoted to member
-        await updateDoc(doc(db, "admin", currentMemberId), { role: "Member" });
-        await updateDoc(doc(db, "elected_officials", currentMemberId), { role: "Member" });
-      }
+      // REMOVED: Role-specific collection updates since only "Member" role is available
+      // All users will only have the "Member" role
 
       alert(`Account for ${form.firstname} ${form.surname} updated successfully!`);
+      
+      // UPDATED: Reset form and close modal after successful update
       setShowModal(false);
-      setIsEditing(false);
-      setCurrentMemberId(null);
-      setForm(defaultForm);
+      resetFormAndState();
       fetchMembers();
     } catch (err: any) {
       console.error("Error updating member:", err);
@@ -730,120 +814,95 @@ const AccReg: React.FC = () => {
     }
   };
 
-  // 🔥 DELETE THE OLD handleCreateAccount FUNCTION AND REPLACE WITH THIS:
-
-const handleCreateAccount = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setErrorMessage(null);
-  setIsProcessing(true);
-  
-  const isValidSession = await validateAdminSession();
-  if (!isValidSession) {
-    setErrorMessage("Admin session expired. Please log in again.");
-    setIsProcessing(false);
-    return;
-  }
-  
-  if (form.password !== form.confirm) {
-    setShowPasswordInfo(true);
-    setErrorMessage("Passwords do not match! Please check and try again.");
-    setIsProcessing(false);
-    return;
-  }
-  if (!isStrongPassword(form.password)) {
-    setShowPasswordInfo(true);
-    setErrorMessage(
-      "Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character."
-    );
-    setIsProcessing(false);
-    return;
-  }
-  if (!isValidEmail(form.email)) {
-    setErrorMessage("Please enter a valid and acceptable email address (e.g., user@domain.com).");
-    setIsProcessing(false);
-    return;
-  }
-
-  try {
-    const newAccNo = await getNextAccNo();
-
-    const memberData = {
-      surname: form.surname,
-      firstname: form.firstname,
-      middlename: form.middlename,
-      dob: form.dob,
-      address: form.address,
-      contact: form.contact,
-      email: form.email,
-      civilStatus: form.civilStatus,
-      role: form.role,
-      status: form.status || "New",
-      accNo: newAccNo,
-    };
-
-    // 🔥 USE CLOUD FUNCTION - NO MORE SESSION CHANGE!
-    const functions = getFunctions();
-    const createUserAccount = httpsCallable(functions, 'createUserAccount');
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setIsProcessing(true);
     
-    const result = await createUserAccount({
-      userData: memberData,
-      password: form.password
-    });
-
-    console.log("✅ User created via cloud function:", result.data);
-
-    alert(`Account created successfully! Role: ${form.role} Account No: ${newAccNo} 🎉`);
-    
-    setShowModal(false);
-    resetFormAndState();
-    fetchMembers();
-    
-  } catch (err: any) {
-    console.error("❌ Cloud function error:", err);
-    let errorText = "An unknown error occurred.";
-    
-    if (err.code === 'permission-denied') {
-      errorText = "Error: You don't have permission to create accounts. Admin access required.";
-    } else if (err.code === 'unauthenticated') {
-      errorText = "Error: Please log in again.";
-    } else if (err.code === 'already-exists') {
-      errorText = "Error: Email already in use.";
-    } else if (err.message) {
-      errorText = err.message;
+    const isValidSession = await validateAdminSession();
+    if (!isValidSession) {
+      setErrorMessage("Admin session expired. Please log in again.");
+      setIsProcessing(false);
+      return;
     }
     
-    setErrorMessage(errorText);
-    setShowPasswordInfo(true);
-  } finally {
-    setIsProcessing(false);
-  }
-};
-
-// 🔥 OPTIONAL: Add test function (ilagay sa loob ng AccReg component)
-const testCloudFunction = async () => {
-  try {
-    const functions = getFunctions();
-    const testFunction = httpsCallable(functions, 'testHoaFunction');
-    const result = await testFunction({});
-    console.log("✅ Cloud Function Result:", result.data);
-    
-    // Safe type access
-    const resultData = result.data as { message?: string };
-    alert("SUCCESS: " + (resultData.message || "Function working!"));
-  } catch (error: unknown) {
-    console.error("❌ Cloud Function Error:", error);
-    
-    // Safe error message access
-    let errorMessage = "Unknown error occurred";
-    if (error && typeof error === 'object' && 'message' in error) {
-      errorMessage = (error as any).message;
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
+    if (form.password !== form.confirm) {
+      setShowPasswordInfo(true);
+      setErrorMessage("Passwords do not match! Please check and try again.");
+      setIsProcessing(false);
+      return;
     }
-    
-    alert("ERROR: " + errorMessage);
-  }
-};
+    if (!isStrongPassword(form.password)) {
+      setShowPasswordInfo(true);
+      setErrorMessage(
+        "Password is not strong enough. It must be at least 8 characters long and contain at least one uppercase letter, one number, and one special character."
+      );
+      setIsProcessing(false);
+      return;
+    }
+    if (!isValidEmail(form.email)) {
+      setErrorMessage("Please enter a valid and acceptable email address (e.g., user@domain.com).");
+      setIsProcessing(false);
+      return;
+    }
+
+    try {
+      const newAccNo = await getNextAccNo();
+
+      const memberData = {
+        surname: form.surname,
+        firstname: form.firstname,
+        middlename: form.middlename,
+        dob: form.dob,
+        address: form.address,
+        contact: form.contact,
+        email: form.email,
+        civilStatus: form.civilStatus,
+        role: form.role, // This will always be "Member" now
+        status: form.status || "New",
+        accNo: newAccNo,
+      };
+
+      // Use cloud function
+      const functions = getFunctions();
+      const createUserAccount = httpsCallable(functions, 'createUserAccount');
+      
+      const result = await createUserAccount({
+        userData: memberData,
+        password: form.password
+      });
+
+      console.log("✅ User created via cloud function:", result.data);
+
+      alert(`Account created successfully! Role: ${form.role} Account No: ${newAccNo} 🎉`);
+      
+      // UPDATED: Reset form and keep modal open for adding another member
+      resetFormAndState();
+      fetchMembers();
+      
+      // Optional: You can choose to close the modal instead by uncommenting the line below:
+      // setShowModal(false);
+      
+    } catch (err: any) {
+      console.error("❌ Cloud function error:", err);
+      let errorText = "An unknown error occurred.";
+      
+      if (err.code === 'permission-denied') {
+        errorText = "Error: You don't have permission to create accounts. Admin access required.";
+      } else if (err.code === 'unauthenticated') {
+        errorText = "Error: Please log in again.";
+      } else if (err.code === 'already-exists') {
+        errorText = "Error: Email already in use.";
+      } else if (err.message) {
+        errorText = err.message;
+      }
+      
+      setErrorMessage(errorText);
+      setShowPasswordInfo(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <div className="">
@@ -864,7 +923,7 @@ const testCloudFunction = async () => {
             <Share size={20} /> 
           </button>
 
-          {/* User Info and Logout */}
+          {/* User Info */}
           <div className="flex items-center space-x-3">
             <div className="text-right">
               <p className="text-sm font-medium">{userSession?.email}</p>
@@ -879,24 +938,13 @@ const testCloudFunction = async () => {
               <UserCircle size={32} />
               <span className="text-sm font-medium hidden sm:inline">Admin</span>
             </div>
-
-            {/* Logout Button */}
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-full hover:bg-white/20 transition-colors"
-              title="Logout"
-            >
-              <LogOut size={20} />
-            </button>
           </div>
         </div>
       </header>
 
       {/* Header and Search */}
-      <div className="bg-teader h-20 flex justify-between items-center px-8">
-        <h1 className="text-3xl font-bold text-white">
-          Account Registry ({viewMode === "active" ? "Active Accounts" : "Deleted Accounts"})
-        </h1>
+      <div className="bg-teader h-20 flex  items-center px-8">
+        
         <div className="flex items-center space-x-3">
           <div className="relative">
             <input
@@ -911,7 +959,7 @@ const testCloudFunction = async () => {
             />
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             <style>{`
-            .bg-teader { background-color: #042f40; }
+            .bg-teader { background-color: #141d21; }
             .bg-object { background-color: #054a5c; }
             `}</style>
           </div>
@@ -945,7 +993,7 @@ const testCloudFunction = async () => {
             viewMode === "active" ? "text-emerald-700 border-b-2 border-emerald-700" : "text-gray-500 hover:text-gray-700"
           }`}
         >
-          Active Accounts ({activeCount})
+          Accounts ({activeCount})
         </button>
         <button
           onClick={() => {
@@ -1101,12 +1149,15 @@ const testCloudFunction = async () => {
                   value={form.middlename} 
                   onChange={(v) => setForm({ ...form, middlename: v })} 
                 />
-                <FloatingInput 
+                
+                {/* CHANGED: Date of Birth to Date Selector */}
+                <FloatingDateInput 
                   id="dob" 
-                  label="Date of Birth (YYYY-MM-DD)" 
+                  label="Date of Birth" 
                   value={form.dob} 
                   onChange={(v) => setForm({ ...form, dob: v })} 
                 />
+                
                 <FloatingInput 
                   id="address" 
                   label="House Address" 
@@ -1156,7 +1207,7 @@ const testCloudFunction = async () => {
                   required 
                   value={form.role} 
                   onChange={(v) => setForm({ ...form, role: v })} 
-                  options={getRoleOptions()} 
+                  options={getRoleOptions()} // Now only returns ["Member"]
                 />
                 
                 {isEditing && (
@@ -1166,29 +1217,34 @@ const testCloudFunction = async () => {
                     required 
                     value={form.status} 
                     onChange={(v) => setForm({ ...form, status: v })} 
-                    options={["Active", "Inactive", "New"]} 
+                    options={getStatusOptions(form.status)} // UPDATED: Dynamic status options
                   />
                 )}
                 
                 {!isEditing && (
                   <>
-                    <FloatingInput 
+                    {/* CHANGED: Password with show/hide eye icon */}
+                    <FloatingPasswordInput 
                       id="password" 
                       label="Password" 
                       required 
                       value={form.password} 
                       onChange={(v) => setForm({ ...form, password: v })} 
-                      type="password" 
+                      onToggleVisibility={() => setShowPassword(!showPassword)}
+                      showPassword={showPassword}
                       onFocus={() => setShowPasswordInfo(true)} 
                       onBlur={() => setShowPasswordInfo(false)} 
                     />
-                    <FloatingInput 
+                    
+                    {/* CHANGED: Confirm Password with show/hide eye icon */}
+                    <FloatingPasswordInput 
                       id="confirm" 
                       label="Confirm Password" 
                       required 
                       value={form.confirm} 
                       onChange={(v) => setForm({ ...form, confirm: v })} 
-                      type="password" 
+                      onToggleVisibility={() => setShowConfirmPassword(!showConfirmPassword)}
+                      showPassword={showConfirmPassword}
                     />
                   </>
                 )}

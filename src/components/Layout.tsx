@@ -108,7 +108,7 @@ const Layout = () => {
                         {/* Text Logo */}
                         <div className="flex flex-col">
                             <span className="text-xl font-extrabold tracking-wider text-white">
-                                HOA
+                                SMUM HOA
                             </span>
                             <span className="text-sm font-semibold tracking-widest text-green-200 -mt-1">
                                 MANAGEMENT

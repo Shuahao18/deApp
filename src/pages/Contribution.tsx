@@ -6,6 +6,8 @@ import {
   FiDownload,
   FiRefreshCw,
   FiEdit,
+  FiChevronsLeft,
+  FiChevronsRight,
 } from "react-icons/fi";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
@@ -20,17 +22,18 @@ import {
   where,
   getDocs,
   addDoc,
+  deleteDoc,
   Timestamp,
   updateDoc,
   doc,
   orderBy,
   limit,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 // --- TYPES ---
 interface Member {
-  id?: string; // ADDED: Document ID
+  id?: string;
   accNo: string;
   firstName: string;
   middleName?: string;
@@ -45,7 +48,7 @@ interface Member {
 
 type ContributionRecord = {
   id: string;
-  userId: string; // ADDED: userId field
+  userId: string;
   accNo: string;
   name: string;
   amount: number;
@@ -144,6 +147,201 @@ const checkAndUpdateMemberStatus = async () => {
   }
 };
 
+// --- DELETE CONFIRMATION MODAL COMPONENT ---
+const DeleteConfirmationModal = ({
+  show,
+  onClose,
+  onConfirm,
+  record,
+  isDeleting,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  record: ContributionRecord | null;
+  isDeleting: boolean;
+}) => {
+  if (!show || !record) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+        <div className="flex items-center mb-4">
+          <div className="bg-red-100 p-3 rounded-full mr-4">
+            <X className="w-6 h-6 text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">Delete Payment Record</h2>
+            <p className="text-sm text-gray-600">This action cannot be undone.</p>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-red-700 font-medium mb-2">
+            Are you sure you want to delete this payment record?
+          </p>
+          <div className="text-sm text-gray-700 space-y-1">
+            <p><strong>Account No:</strong> {record.accNo}</p>
+            <p><strong>Member:</strong> {record.name}</p>
+            <p><strong>Amount:</strong> P {record.amount.toFixed(2)}</p>
+            <p><strong>Date:</strong> {record.transactionDate.toDate().toLocaleDateString()}</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button
+            onClick={onClose}
+            disabled={isDeleting}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:bg-red-400"
+          >
+            {isDeleting ? (
+              <>
+                <FiRefreshCw className="animate-spin w-4 h-4" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <X className="w-4 h-4" />
+                Delete Record
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- PAGINATION COMPONENT ---
+const Pagination = ({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) => {
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const startPage = Math.max(1, currentPage - 2);
+      const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 rounded-b-lg">
+      {/* Mobile view */}
+      <div className="flex flex-1 justify-between sm:hidden">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Previous
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
+      </div>
+
+      {/* Desktop view */}
+      <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-gray-700">
+            Showing page <span className="font-medium">{currentPage}</span> of{" "}
+            <span className="font-medium">{totalPages}</span>
+          </p>
+        </div>
+        <div>
+          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+            {/* First page button */}
+            <button
+              onClick={() => onPageChange(1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">First</span>
+              <FiChevronsLeft className="h-4 w-4" />
+            </button>
+
+            {/* Previous page button */}
+            <button
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Previous</span>
+              <FiChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Page numbers */}
+            {getPageNumbers().map((page) => (
+              <button
+                key={page}
+                onClick={() => onPageChange(page)}
+                className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ${
+                  currentPage === page
+                    ? "bg-[#125648] text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#125648]"
+                    : "text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            {/* Next page button */}
+            <button
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="relative inline-flex items-center px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Next</span>
+              <FiChevronRight className="h-4 w-4" />
+            </button>
+
+            {/* Last page button */}
+            <button
+              onClick={() => onPageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Last</span>
+              <FiChevronsRight className="h-4 w-4" />
+            </button>
+          </nav>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- EDIT PAYMENT MODAL COMPONENT ---
 const EditPaymentModal = ({
   show,
@@ -215,7 +413,6 @@ const EditPaymentModal = ({
         recipient: formData.recipient,
         transactionDate: Timestamp.fromDate(dateToSave),
         proofURL: proofURL,
-        // userId remains unchanged when editing
       });
 
       onSave();
@@ -458,19 +655,19 @@ const AddPaymentModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [memberError, setMemberError] = useState("");
-  const [memberId, setMemberId] = useState(""); // ADDED: Store member document ID
+  const [memberId, setMemberId] = useState("");
 
   const fetchMemberDetails = async (accNo: string) => {
     if (accNo.length < 3) {
       setFormData((prev) => ({ ...prev, name: "" }));
       setMemberError("");
-      setMemberId(""); // Reset memberId
+      setMemberId("");
       return;
     }
 
     setIsSearching(true);
     setMemberError("");
-    setMemberId(""); // Reset memberId
+    setMemberId("");
     try {
       const membersRef = collection(db, "members");
       const q = query(
@@ -498,7 +695,7 @@ const AddPaymentModal = ({
           name: fullName || "N/A",
           amount: memberData.default_dues || 30.0,
         }));
-        setMemberId(memberDoc.id); // ADDED: Store the member document ID as userId
+        setMemberId(memberDoc.id);
         setMemberError("");
       }
     } catch (error) {
@@ -530,7 +727,7 @@ const AddPaymentModal = ({
       alert("Please fill in all required payment details.");
       return;
     }
-    if (!memberId) { // ADDED: Check if memberId is available
+    if (!memberId) {
       alert("Member information is not complete. Please check the account number.");
       return;
     }
@@ -539,7 +736,6 @@ const AddPaymentModal = ({
     let proofURL = "";
 
     try {
-      // Check for existing payment for the current month
       const contributionsRef = collection(db, "contributions");
       const existingPaymentQuery = query(
         contributionsRef,
@@ -565,7 +761,7 @@ const AddPaymentModal = ({
 
       const dateToSave = new Date(formData.transactionDate);
       await addDoc(collection(db, "contributions"), {
-        userId: memberId, // ADDED: Include userId field
+        userId: memberId,
         accNo: formData.accNo,
         name: formData.name,
         amount: parseFloat(formData.amount.toString()),
@@ -587,7 +783,7 @@ const AddPaymentModal = ({
       });
       setImageFile(null);
       setMemberError("");
-      setMemberId(""); // Reset memberId
+      setMemberId("");
     } catch (error) {
       console.error("Error saving contribution:", error);
       alert("Failed to save payment. Please check console for details.");
@@ -795,7 +991,7 @@ const ExportModal = ({
     { key: "recipient", label: "Recipient" },
     { key: "transactionDate", label: "Date Paid" },
     { key: "proofURL", label: "Proof of Payment" },
-    { key: "userId", label: "User ID" }, // ADDED: User ID column option
+    { key: "userId", label: "User ID" },
   ];
 
   const handleToggleColumn = (key: string) => {
@@ -859,7 +1055,7 @@ const ExportModal = ({
           case "proofURL":
             value = record.proofURL ? "Available" : "No Proof";
             break;
-          case "userId": // ADDED: User ID case
+          case "userId":
             value = record.userId || "N/A";
             break;
           default:
@@ -989,12 +1185,16 @@ export default function Contribution() {
   const [showModal, setShowModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ContributionRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // ADDED: Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(5);
 
-  // Navigation hook
   const navigate = useNavigate();
 
-  // Navigation handlers
   const handleAdminClick = () => {
     navigate('/EditModal');
   };
@@ -1036,7 +1236,7 @@ export default function Contribution() {
         const data = doc.data();
         return {
           id: doc.id,
-          userId: data.userId || "N/A", // ADDED: Include userId when fetching
+          userId: data.userId || "N/A",
           accNo: data.accNo,
           name: data.name,
           amount: data.amount,
@@ -1058,6 +1258,9 @@ export default function Contribution() {
         unpaidMembers,
         totalMembers,
       }));
+      
+      // Reset to first page when data changes
+      setCurrentPage(1);
     } catch (error) {
       console.error("Error fetching contributions:", error);
     } finally {
@@ -1086,6 +1289,56 @@ export default function Contribution() {
   const handleEditSave = () => {
     fetchContributionData(currentMonth);
     checkAndUpdateMemberStatus();
+  };
+
+  const handleDeleteClick = (record: ContributionRecord) => {
+    setSelectedRecord(record);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedRecord) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "contributions", selectedRecord.id));
+
+      if (selectedRecord.proofURL) {
+        try {
+          const storageRef = ref(storage, selectedRecord.proofURL);
+          await deleteObject(storageRef);
+          console.log("Proof image deleted successfully");
+        } catch (storageError) {
+          console.warn("Could not delete proof image:", storageError);
+        }
+      }
+
+      await fetchContributionData(currentMonth);
+      checkAndUpdateMemberStatus();
+      
+      setShowDeleteModal(false);
+      setSelectedRecord(null);
+      
+      console.log("Payment record deleted successfully");
+    } catch (error) {
+      console.error("Error deleting payment record:", error);
+      alert("Failed to delete payment record. Please check console for details.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // ADDED: Pagination calculations
+  const currentRecords = useMemo(() => {
+    const indexOfLastRecord = currentPage * itemsPerPage;
+    const indexOfFirstRecord = indexOfLastRecord - itemsPerPage;
+    return records.slice(indexOfFirstRecord, indexOfLastRecord);
+  }, [currentPage, records, itemsPerPage]);
+
+  const totalPages = Math.ceil(records.length / itemsPerPage);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
   };
 
   const currentMonthDisplay = useMemo(
@@ -1247,14 +1500,14 @@ export default function Contribution() {
                       Loading records...
                     </td>
                   </tr>
-                ) : records.length === 0 ? (
+                ) : currentRecords.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-6 text-gray-500">
                       No records found for this month.
                     </td>
                   </tr>
                 ) : (
-                  records.map((record) => (
+                  currentRecords.map((record) => (
                     <tr key={record.id} className="hover:bg-gray-50">
                       <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-gray-900">
                         {record.accNo}
@@ -1293,20 +1546,37 @@ export default function Contribution() {
                         )}
                       </td>
                       <td className="px-6 py-5 whitespace-nowrap text-sm text-gray-700">
-                        <button
-                          onClick={() => handleEditClick(record)}
-                          className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                          title="Edit payment"
-                        >
-                          <FiEdit className="w-3 h-3" />
-                          Edit
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEditClick(record)}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                            title="Edit payment"
+                          >
+                            <FiEdit className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(record)}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                            title="Delete payment"
+                          >
+                            <X className="w-3 h-3" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+            
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
           </div>
         </div>
 
@@ -1331,6 +1601,18 @@ export default function Contribution() {
           }}
           onSave={handleEditSave}
           record={selectedRecord}
+        />
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmationModal
+          show={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedRecord(null);
+          }}
+          onConfirm={handleDeleteConfirm}
+          record={selectedRecord}
+          isDeleting={isDeleting}
         />
 
         {/* Export to PDF Modal */}

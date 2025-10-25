@@ -1,11 +1,30 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { FiPlus, FiDownload, FiRefreshCw, FiEdit } from "react-icons/fi";
+import { 
+  FiPlus, 
+  FiDownload, 
+  FiRefreshCw, 
+  FiEdit,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronsLeft,
+  FiChevronsRight
+} from "react-icons/fi";
 import { X } from 'lucide-react'; 
 import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import { db, storage } from "../Firebase"; 
-import { collection, query, getDocs, addDoc, Timestamp, where, updateDoc, doc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { 
+  collection, 
+  query, 
+  getDocs, 
+  addDoc, 
+  Timestamp, 
+  where, 
+  updateDoc, 
+  doc,
+  deleteDoc 
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable'; 
 
@@ -79,6 +98,24 @@ const updateExpense = async (
   });
 };
 
+// Delete Expense
+const deleteExpense = async (expenseId: string, receiptUrl: string): Promise<void> => {
+  // Delete the document from Firestore
+  await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId));
+
+  // Delete the associated receipt file from Storage if it exists
+  if (receiptUrl) {
+    try {
+      const storageRef = ref(storage, receiptUrl);
+      await deleteObject(storageRef);
+      console.log("Receipt image deleted successfully");
+    } catch (storageError) {
+      console.warn("Could not delete receipt image:", storageError);
+      // Continue even if image deletion fails
+    }
+  }
+};
+
 // Fetch Expenses by Year
 const fetchExpensesByYear = async (year: number): Promise<ExpenseRecord[]> => {
   try {
@@ -144,6 +181,200 @@ const fetchTotalFundsByYear = async (year: number): Promise<number> => {
     return 0.00;
   }
 }
+
+// --- DELETE CONFIRMATION MODAL ---
+const DeleteConfirmationModal = ({
+  show,
+  onClose,
+  onConfirm,
+  record,
+  isDeleting,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  record: ExpenseRecord | null;
+  isDeleting: boolean;
+}) => {
+  if (!show || !record) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+        <div className="flex items-center mb-4">
+          <div className="bg-red-100 p-3 rounded-full mr-4">
+            <X className="w-6 h-6 text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">Delete Expense Record</h2>
+            <p className="text-sm text-gray-600">This action cannot be undone.</p>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-red-700 font-medium mb-2">
+            Are you sure you want to delete this expense record?
+          </p>
+          <div className="text-sm text-gray-700 space-y-1">
+            <p><strong>Purpose:</strong> {record.purpose}</p>
+            <p><strong>Amount:</strong> P {record.amount.toFixed(2)}</p>
+            <p><strong>Date:</strong> {record.transactionDate.toDate().toLocaleDateString()}</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button
+            onClick={onClose}
+            disabled={isDeleting}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:bg-red-400"
+          >
+            {isDeleting ? (
+              <>
+                <FiRefreshCw className="animate-spin w-4 h-4" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <X className="w-4 h-4" />
+                Delete Record
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- PAGINATION COMPONENT ---
+const Pagination = ({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) => {
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const startPage = Math.max(1, currentPage - 2);
+      const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 rounded-b-lg">
+      {/* Mobile view */}
+      <div className="flex flex-1 justify-between sm:hidden">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Previous
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
+      </div>
+
+      {/* Desktop view */}
+      <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-gray-700">
+            Showing page <span className="font-medium">{currentPage}</span> of{" "}
+            <span className="font-medium">{totalPages}</span>
+          </p>
+        </div>
+        <div>
+          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+            {/* First page button */}
+            <button
+              onClick={() => onPageChange(1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">First</span>
+              <FiChevronsLeft className="h-4 w-4" />
+            </button>
+
+            {/* Previous page button */}
+            <button
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Previous</span>
+              <FiChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Page numbers */}
+            {getPageNumbers().map((page) => (
+              <button
+                key={page}
+                onClick={() => onPageChange(page)}
+                className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ${
+                  currentPage === page
+                    ? "bg-[#125648] text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#125648]"
+                    : "text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            {/* Next page button */}
+            <button
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="relative inline-flex items-center px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Next</span>
+              <FiChevronRight className="h-4 w-4" />
+            </button>
+
+            {/* Last page button */}
+            <button
+              onClick={() => onPageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="sr-only">Last</span>
+              <FiChevronsRight className="h-4 w-4" />
+            </button>
+          </nav>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- EDIT EXPENSE MODAL ---
 const EditExpenseModal = ({ 
@@ -321,7 +552,7 @@ const EditExpenseModal = ({
   );
 };
 
-// --- EXPORT MODAL (Keep existing) ---
+// --- EXPORT MODAL ---
 const ExportExpensesModal = ({ show, onClose, records, summary }: { 
   show: boolean, 
   onClose: () => void, 
@@ -499,7 +730,7 @@ const StatBox = ({ title, value, colorKey }:
   );
 };
 
-// --- EXPENSE FORM MODAL (Keep existing) ---
+// --- EXPENSE FORM MODAL ---
 const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: () => void, onSave: () => void }) => {
   const [purpose, setPurpose] = useState('');
   const [amount, setAmount] = useState('');
@@ -656,8 +887,14 @@ export default function Expenses() {
   const [showAddModal, setShowAddModal] = useState(false); 
   const [showExportModal, setShowExportModal] = useState(false); 
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<ExpenseRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(5);
+
   const currentYear = new Date().getFullYear(); 
 
   // Navigation hook
@@ -701,6 +938,19 @@ export default function Expenses() {
     fetchFundsData(); 
   }, [currentYear]); 
 
+  // Pagination calculations
+  const currentRecords = useMemo(() => {
+    const indexOfLastRecord = currentPage * itemsPerPage;
+    const indexOfFirstRecord = indexOfLastRecord - itemsPerPage;
+    return records.slice(indexOfFirstRecord, indexOfLastRecord);
+  }, [currentPage, records, itemsPerPage]);
+
+  const totalPages = Math.ceil(records.length / itemsPerPage);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
   const totalExpensesThisYear = useMemo(() => {
     return records.reduce((sum, record) => sum + record.amount, 0);
   }, [records]);
@@ -725,6 +975,36 @@ export default function Expenses() {
   const handleEditSave = () => {
     fetchExpensesData();
     fetchFundsData();
+  };
+
+  // Delete handler functions
+  const handleDeleteClick = (record: ExpenseRecord) => {
+    setSelectedRecord(record);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedRecord || !selectedRecord.id) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteExpense(selectedRecord.id, selectedRecord.receiptUrl);
+
+      // Refresh the data
+      await fetchExpensesData();
+      await fetchFundsData();
+      
+      // Close the modal
+      setShowDeleteModal(false);
+      setSelectedRecord(null);
+      
+      console.log("Expense record deleted successfully");
+    } catch (error) {
+      console.error("Error deleting expense record:", error);
+      alert("Failed to delete expense record. Please check console for details.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -793,7 +1073,7 @@ export default function Expenses() {
             </button>
           </div>
 
-          {/* FIXED TABLE STRUCTURE */}
+          {/* FIXED TABLE STRUCTURE WITH PAGINATION */}
           <div className="overflow-x-auto border rounded-lg shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-object"> 
@@ -812,14 +1092,14 @@ export default function Expenses() {
                       Loading expenses...
                     </td>
                   </tr>
-                ) : records.length === 0 ? (
+                ) : currentRecords.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center py-6 text-gray-500">
                       No expenses recorded.
                     </td>
                   </tr>
                 ) : (
-                  records.map((record) => (
+                  currentRecords.map((record) => (
                     <tr key={record.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {record.purpose}
@@ -849,20 +1129,37 @@ export default function Expenses() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <button
-                          onClick={() => handleEditClick(record)}
-                          className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                          title="Edit expense"
-                        >
-                          <FiEdit className="w-3 h-3" />
-                          Edit
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEditClick(record)}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                            title="Edit expense"
+                          >
+                            <FiEdit className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(record)}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                            title="Delete expense"
+                          >
+                            <X className="w-3 h-3" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+            
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
           </div>
         </div>
         
@@ -880,6 +1177,18 @@ export default function Expenses() {
           }} 
           onSave={handleEditSave}
           record={selectedRecord}
+        />
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmationModal
+          show={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedRecord(null);
+          }}
+          onConfirm={handleDeleteConfirm}
+          record={selectedRecord}
+          isDeleting={isDeleting}
         />
 
         <ExportExpensesModal 
