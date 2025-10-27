@@ -13,7 +13,7 @@ import {
   FiEye,
   FiEyeOff,
 } from "react-icons/fi";
-import { auth, db } from "../../Firebase";
+import { auth, db } from "../Firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, doc, setDoc, getDoc, getDocs } from "firebase/firestore";
 
@@ -149,11 +149,11 @@ const MemAssoc: React.FC = () => {
     Removed: "bg-gray-400 text-white",
     New: "bg-yellow-400 text-black",
   };
-  
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const membersPerPage = 10;
-  
+
   const [f, setF] = useState({
     surname: "",
     firstname: "",
@@ -218,13 +218,16 @@ const MemAssoc: React.FC = () => {
   const filteredMembers = React.useMemo(() => {
     let list = [...members];
 
-    if (sortFilter === "Active") list = list.filter((m) => m.status === "Active");
+    if (sortFilter === "Active")
+      list = list.filter((m) => m.status === "Active");
     if (sortFilter === "Inactive")
       list = list.filter((m) => m.status === "Inactive");
     if (sortFilter === "New member" || sortFilter === "New")
       list = list.filter((m) => m.status === "New");
     if (sortFilter === "Form A-Z")
-      list = list.sort((a, b) => (a.surname || "").localeCompare(b.surname || ""));
+      list = list.sort((a, b) =>
+        (a.surname || "").localeCompare(b.surname || "")
+      );
 
     if (searchQuery.trim() !== "") {
       const q = searchQuery.toLowerCase();
@@ -240,11 +243,14 @@ const MemAssoc: React.FC = () => {
 
     return list;
   }, [members, sortFilter, searchQuery]);
-  
+
   // Get current members for the page
   const indexOfLastMember = currentPage * membersPerPage;
   const indexOfFirstMember = indexOfLastMember - membersPerPage;
-  const currentMembers = filteredMembers.slice(indexOfFirstMember, indexOfLastMember);
+  const currentMembers = filteredMembers.slice(
+    indexOfFirstMember,
+    indexOfLastMember
+  );
   const totalPages = Math.ceil(filteredMembers.length / membersPerPage);
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
@@ -352,8 +358,14 @@ const MemAssoc: React.FC = () => {
         <h1 className="text-xl text-white font-semibold">List of Members</h1>
         <div className="flex items-center gap-2">
           {/* You have two circles here in the design, so I'll keep them */}
-          <div className="w-8 h-8 rounded-full" style={{ backgroundColor: '#20C997' }} />
-          <div className="w-8 h-8 rounded-full" style={{ backgroundColor: '#006C5E' }} />
+          <div
+            className="w-8 h-8 rounded-full"
+            style={{ backgroundColor: "#20C997" }}
+          />
+          <div
+            className="w-8 h-8 rounded-full"
+            style={{ backgroundColor: "#006C5E" }}
+          />
         </div>
       </div>
 
@@ -361,7 +373,9 @@ const MemAssoc: React.FC = () => {
       <div className="p-6">
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="flex flex-col md:flex-row justify-between items-center px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-[#555A6E] md:text-left">Members of association</h2>
+            <h2 className="text-lg font-semibold text-[#555A6E] md:text-left">
+              Members of association
+            </h2>
             <div className="flex flex-col md:flex-row items-center gap-3 relative mt-4 md:mt-0">
               {/* Sort Dropdown */}
               <div className="relative">
@@ -374,22 +388,26 @@ const MemAssoc: React.FC = () => {
                 </Button>
                 {showSortMenu && (
                   <div className="absolute right-0 mt-2 w-40 bg-white border rounded-md shadow-md z-10">
-                    {["View All", "Form A-Z", "Active", "Inactive", "New member"].map(
-                      (option) => (
-                        <button
-                          key={option}
-                          className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
-                            sortFilter === option ? "bg-gray-100 font-medium" : ""
-                          }`}
-                          onClick={() => {
-                            setSortFilter(option);
-                            setShowSortMenu(false);
-                          }}
-                        >
-                          {option}
-                        </button>
-                      )
-                    )}
+                    {[
+                      "View All",
+                      "Form A-Z",
+                      "Active",
+                      "Inactive",
+                      "New member",
+                    ].map((option) => (
+                      <button
+                        key={option}
+                        className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
+                          sortFilter === option ? "bg-gray-100 font-medium" : ""
+                        }`}
+                        onClick={() => {
+                          setSortFilter(option);
+                          setShowSortMenu(false);
+                        }}
+                      >
+                        {option}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -415,7 +433,7 @@ const MemAssoc: React.FC = () => {
               </Button>
             </div>
           </div>
-          
+
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-[#ECF0F1] text-[#718096] uppercase text-left">
@@ -439,13 +457,14 @@ const MemAssoc: React.FC = () => {
                   currentMembers.map((m: any, index) => (
                     <tr key={m.id} className="border-b hover:bg-gray-50">
                       <td className="p-4">{indexOfFirstMember + index + 1}</td>
-                      <td className="p-4">{`${m.firstname} ${m.middlename || ''} ${m.surname}`}</td>
+                      <td className="p-4">{`${m.firstname} ${m.middlename || ""} ${m.surname}`}</td>
                       <td className="p-4">{m.address}</td>
                       <td className="p-4">{m.email}</td>
                       <td className="p-4">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            statusColors[m.status] || "bg-gray-300 text-gray-700"
+                            statusColors[m.status] ||
+                            "bg-gray-300 text-gray-700"
                           }`}
                         >
                           {m.status || "Unknown"}
@@ -508,7 +527,9 @@ const MemAssoc: React.FC = () => {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 font-poppins">
           <div className="bg-white rounded-lg p-8 w-full max-w-3xl">
-            <h2 className="text-2xl font-semibold mb-6 text-[#555A6E]">Add Member</h2>
+            <h2 className="text-2xl font-semibold mb-6 text-[#555A6E]">
+              Add Member
+            </h2>
             <form onSubmit={handleCreateAccount} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                 <FloatingInput
@@ -599,7 +620,9 @@ const MemAssoc: React.FC = () => {
                   right={
                     <button
                       type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
                     >
                       {showConfirmPassword ? <FiEyeOff /> : <FiEye />}
                     </button>
@@ -607,7 +630,8 @@ const MemAssoc: React.FC = () => {
                 />
               </div>
               <div className="text-xs text-gray-500">
-                Password must have at least 8 characters, including uppercase, lowercase, and numbers.
+                Password must have at least 8 characters, including uppercase,
+                lowercase, and numbers.
               </div>
               <div className="flex justify-end gap-3 mt-6">
                 <Button
@@ -628,7 +652,9 @@ const MemAssoc: React.FC = () => {
       {showEditModal && editData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 font-poppins">
           <div className="bg-white rounded-lg p-8 w-full max-w-lg">
-            <h2 className="text-2xl font-semibold mb-6 text-[#555A6E]">Edit Member</h2>
+            <h2 className="text-2xl font-semibold mb-6 text-[#555A6E]">
+              Edit Member
+            </h2>
             <form onSubmit={handleEditMember} className="space-y-6">
               <FloatingInput
                 id="edit-surname"

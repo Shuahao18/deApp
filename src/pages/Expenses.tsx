@@ -1,32 +1,37 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { 
-  FiPlus, 
-  FiDownload, 
-  FiRefreshCw, 
+import {
+  FiPlus,
+  FiDownload,
+  FiRefreshCw,
   FiEdit,
   FiChevronLeft,
   FiChevronRight,
   FiChevronsLeft,
-  FiChevronsRight
+  FiChevronsRight,
 } from "react-icons/fi";
-import { X } from 'lucide-react'; 
-import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
-import { useNavigate } from 'react-router-dom';
-import { db, storage } from "../Firebase"; 
-import { 
-  collection, 
-  query, 
-  getDocs, 
-  addDoc, 
-  Timestamp, 
-  where, 
-  updateDoc, 
+import { X } from "lucide-react";
+import { UserCircleIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { useNavigate } from "react-router-dom";
+import { db, storage } from "../Firebase";
+import {
+  collection,
+  query,
+  getDocs,
+  addDoc,
+  Timestamp,
+  where,
+  updateDoc,
   doc,
-  deleteDoc 
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable'; 
+  deleteDoc,
+} from "firebase/firestore";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 // --- TYPES ---
 type ExpenseRecord = {
@@ -41,24 +46,27 @@ type ExpenseSummary = {
   totalExpenses: number;
   totalFunds: number;
   year: number;
-}
+};
 
 // --- FIREBASE FUNCTIONS ---
-const EXPENSES_COLLECTION = 'expenses';
-const EXPENSES_STORAGE_PATH = 'expense_proofs/';
-const CONTRIBUTIONS_COLLECTION = 'contributions';
+const EXPENSES_COLLECTION = "expenses";
+const EXPENSES_STORAGE_PATH = "expense_proofs/";
+const CONTRIBUTIONS_COLLECTION = "contributions";
 
 // Add Expense
 const addExpense = async (
-  purpose: string, 
-  amount: number, 
-  date: Date, 
+  purpose: string,
+  amount: number,
+  date: Date,
   receiptFile: File | null
 ): Promise<void> => {
-  let proofURL = '';
+  let proofURL = "";
 
   if (receiptFile) {
-    const storageRef = ref(storage, `${EXPENSES_STORAGE_PATH}${Date.now()}_${receiptFile.name}`);
+    const storageRef = ref(
+      storage,
+      `${EXPENSES_STORAGE_PATH}${Date.now()}_${receiptFile.name}`
+    );
     await uploadBytes(storageRef, receiptFile);
     proofURL = await getDownloadURL(storageRef);
   }
@@ -68,23 +76,26 @@ const addExpense = async (
     amount: parseFloat(amount.toString()),
     transactionDate: Timestamp.fromDate(date),
     receiptUrl: proofURL,
-    createdAt: Timestamp.now(), 
+    createdAt: Timestamp.now(),
   });
 };
 
 // Update Expense
 const updateExpense = async (
   expenseId: string,
-  purpose: string, 
-  amount: number, 
-  date: Date, 
+  purpose: string,
+  amount: number,
+  date: Date,
   receiptFile: File | null,
   existingReceiptUrl: string
 ): Promise<void> => {
   let proofURL = existingReceiptUrl;
 
   if (receiptFile) {
-    const storageRef = ref(storage, `${EXPENSES_STORAGE_PATH}${Date.now()}_${receiptFile.name}`);
+    const storageRef = ref(
+      storage,
+      `${EXPENSES_STORAGE_PATH}${Date.now()}_${receiptFile.name}`
+    );
     await uploadBytes(storageRef, receiptFile);
     proofURL = await getDownloadURL(storageRef);
   }
@@ -94,12 +105,15 @@ const updateExpense = async (
     amount: parseFloat(amount.toString()),
     transactionDate: Timestamp.fromDate(date),
     receiptUrl: proofURL,
-    updatedAt: Timestamp.now(), 
+    updatedAt: Timestamp.now(),
   });
 };
 
 // Delete Expense
-const deleteExpense = async (expenseId: string, receiptUrl: string): Promise<void> => {
+const deleteExpense = async (
+  expenseId: string,
+  receiptUrl: string
+): Promise<void> => {
   // Delete the document from Firestore
   await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId));
 
@@ -124,13 +138,13 @@ const fetchExpensesByYear = async (year: number): Promise<ExpenseRecord[]> => {
 
     const q = query(
       collection(db, EXPENSES_COLLECTION),
-      where('transactionDate', '>=', startOfYear),
-      where('transactionDate', '<', endOfYear)
+      where("transactionDate", ">=", startOfYear),
+      where("transactionDate", "<", endOfYear)
     );
-    
+
     const querySnapshot = await getDocs(q);
 
-    const expenseList: ExpenseRecord[] = querySnapshot.docs.map(doc => {
+    const expenseList: ExpenseRecord[] = querySnapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -151,26 +165,26 @@ const fetchExpensesByYear = async (year: number): Promise<ExpenseRecord[]> => {
 // Fetch Total Funds
 const fetchTotalFundsByYear = async (year: number): Promise<number> => {
   try {
-    const startOfYear = new Date(year, 0, 1); 
-    const endOfYear = new Date(year + 1, 0, 1); 
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year + 1, 0, 1);
 
     const startTimestamp = Timestamp.fromDate(startOfYear);
     const endTimestamp = Timestamp.fromDate(endOfYear);
 
     const q = query(
       collection(db, CONTRIBUTIONS_COLLECTION),
-      where('transactionDate', '>=', startTimestamp),
-      where('transactionDate', '<', endTimestamp)
+      where("transactionDate", ">=", startTimestamp),
+      where("transactionDate", "<", endTimestamp)
     );
 
     const querySnapshot = await getDocs(q);
-    
+
     let total = 0;
-    querySnapshot.docs.forEach(doc => {
+    querySnapshot.docs.forEach((doc) => {
       const data = doc.data();
-      if (typeof data.amount === 'number') {
+      if (typeof data.amount === "number") {
         total += data.amount;
-      } else if (typeof data.amount === 'string') {
+      } else if (typeof data.amount === "string") {
         total += parseFloat(data.amount);
       }
     });
@@ -178,9 +192,9 @@ const fetchTotalFundsByYear = async (year: number): Promise<number> => {
     return total;
   } catch (error) {
     console.error(`Error fetching total funds for ${year}:`, error);
-    return 0.00;
+    return 0.0;
   }
-}
+};
 
 // --- DELETE CONFIRMATION MODAL ---
 const DeleteConfirmationModal = ({
@@ -206,8 +220,12 @@ const DeleteConfirmationModal = ({
             <X className="w-6 h-6 text-red-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-800">Delete Expense Record</h2>
-            <p className="text-sm text-gray-600">This action cannot be undone.</p>
+            <h2 className="text-xl font-bold text-gray-800">
+              Delete Expense Record
+            </h2>
+            <p className="text-sm text-gray-600">
+              This action cannot be undone.
+            </p>
           </div>
         </div>
 
@@ -216,9 +234,16 @@ const DeleteConfirmationModal = ({
             Are you sure you want to delete this expense record?
           </p>
           <div className="text-sm text-gray-700 space-y-1">
-            <p><strong>Purpose:</strong> {record.purpose}</p>
-            <p><strong>Amount:</strong> P {record.amount.toFixed(2)}</p>
-            <p><strong>Date:</strong> {record.transactionDate.toDate().toLocaleDateString()}</p>
+            <p>
+              <strong>Purpose:</strong> {record.purpose}
+            </p>
+            <p>
+              <strong>Amount:</strong> P {record.amount.toFixed(2)}
+            </p>
+            <p>
+              <strong>Date:</strong>{" "}
+              {record.transactionDate.toDate().toLocaleDateString()}
+            </p>
           </div>
         </div>
 
@@ -266,7 +291,7 @@ const Pagination = ({
   const getPageNumbers = () => {
     const pages = [];
     const maxVisiblePages = 5;
-    
+
     if (totalPages <= maxVisiblePages) {
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
@@ -274,12 +299,12 @@ const Pagination = ({
     } else {
       const startPage = Math.max(1, currentPage - 2);
       const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-      
+
       for (let i = startPage; i <= endPage; i++) {
         pages.push(i);
       }
     }
-    
+
     return pages;
   };
 
@@ -314,7 +339,10 @@ const Pagination = ({
           </p>
         </div>
         <div>
-          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+          <nav
+            className="isolate inline-flex -space-x-px rounded-md shadow-sm"
+            aria-label="Pagination"
+          >
             {/* First page button */}
             <button
               onClick={() => onPageChange(1)}
@@ -377,20 +405,20 @@ const Pagination = ({
 };
 
 // --- EDIT EXPENSE MODAL ---
-const EditExpenseModal = ({ 
-  show, 
-  onClose, 
-  onSave, 
-  record 
-}: { 
-  show: boolean; 
-  onClose: () => void; 
-  onSave: () => void; 
+const EditExpenseModal = ({
+  show,
+  onClose,
+  onSave,
+  record,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onSave: () => void;
   record: ExpenseRecord | null;
 }) => {
-  const [purpose, setPurpose] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState('');
+  const [purpose, setPurpose] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -423,16 +451,15 @@ const EditExpenseModal = ({
     try {
       await updateExpense(
         record.id,
-        purpose, 
-        parseFloat(amount), 
-        new Date(date), 
+        purpose,
+        parseFloat(amount),
+        new Date(date),
         imageFile,
         record.receiptUrl
       );
 
       onSave();
       onClose();
-      
     } catch (error) {
       console.error("Error updating expense:", error);
       alert("Failed to update expense.");
@@ -440,61 +467,72 @@ const EditExpenseModal = ({
       setIsSaving(false);
     }
   };
-  
+
   if (!show || !record) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+        >
           <X size={20} />
         </button>
-        <h2 className="text-xl font-bold mb-1 text-center">Edit Expense Details</h2>
-        <p className="text-sm text-gray-500 mb-4 text-center border-b pb-4">Update the expense information below</p>
-        
+        <h2 className="text-xl font-bold mb-1 text-center">
+          Edit Expense Details
+        </h2>
+        <p className="text-sm text-gray-500 mb-4 text-center border-b pb-4">
+          Update the expense information below
+        </p>
+
         <form onSubmit={handleSave} className="space-y-4">
           <div>
             <label className="block text-sm font-medium">Purpose</label>
-            <input 
-              type="text" 
-              value={purpose} 
-              onChange={e => setPurpose(e.target.value)} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]" 
+            <input
+              type="text"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
               disabled={isSaving}
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium">Amount</label>
-            <input 
-              type="number" 
-              value={amount} 
-              onChange={e => setAmount(e.target.value)} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]" 
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
               disabled={isSaving}
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium">Date</label>
-            <input 
-              type="date" 
-              value={date} 
-              onChange={e => setDate(e.target.value)} 
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
               disabled={isSaving}
             />
           </div>
-          
+
           <div className="pt-2">
-            <label className="block text-sm font-medium mb-1">Proof of expenses</label>
+            <label className="block text-sm font-medium mb-1">
+              Proof of expenses
+            </label>
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition cursor-pointer">
               {imageFile ? (
                 <div className="flex justify-between items-center">
-                  <p className="text-sm text-green-600">New file: {imageFile.name}</p>
-                  <button 
-                    type="button" 
-                    onClick={handleClearFile} 
+                  <p className="text-sm text-green-600">
+                    New file: {imageFile.name}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClearFile}
                     className="text-red-500 hover:text-red-700 text-sm font-semibold ml-4"
                     disabled={isSaving}
                   >
@@ -503,10 +541,12 @@ const EditExpenseModal = ({
                 </div>
               ) : record.receiptUrl ? (
                 <div className="flex justify-between items-center">
-                  <p className="text-sm text-blue-600">Current receipt uploaded</p>
-                  <button 
-                    type="button" 
-                    onClick={handleClearFile} 
+                  <p className="text-sm text-blue-600">
+                    Current receipt uploaded
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClearFile}
                     className="text-red-500 hover:text-red-700 text-sm font-semibold ml-4"
                     disabled={isSaving}
                   >
@@ -516,14 +556,16 @@ const EditExpenseModal = ({
               ) : (
                 <>
                   <p className="text-3xl">🖼️</p>
-                  <p className="text-gray-500 text-sm">Upload an image or drag and drop</p>
+                  <p className="text-gray-500 text-sm">
+                    Upload an image or drag and drop
+                  </p>
                 </>
               )}
-              <input 
-                type="file" 
+              <input
+                type="file"
                 accept="image/*"
-                onChange={handleFileChange} 
-                className="opacity-0 absolute inset-0 cursor-pointer" 
+                onChange={handleFileChange}
+                className="opacity-0 absolute inset-0 cursor-pointer"
                 disabled={isSaving}
               />
             </div>
@@ -533,14 +575,19 @@ const EditExpenseModal = ({
               </p>
             )}
           </div>
-          
+
           <div className="mt-6 pt-4 border-t flex justify-center gap-3">
-            <button type="button" onClick={onClose} className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 font-semibold" disabled={isSaving}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 font-semibold"
+              disabled={isSaving}
+            >
               Cancel
             </button>
-            <button 
+            <button
               type="submit"
-              disabled={isSaving} 
+              disabled={isSaving}
               className="bg-[#125648] text-white px-6 py-2 rounded-lg hover:bg-[#0d3d33] font-semibold disabled:bg-gray-400"
             >
               {isSaving ? "Updating..." : "Update Expense"}
@@ -553,30 +600,38 @@ const EditExpenseModal = ({
 };
 
 // --- EXPORT MODAL ---
-const ExportExpensesModal = ({ show, onClose, records, summary }: { 
-  show: boolean, 
-  onClose: () => void, 
-  records: ExpenseRecord[], 
-  summary: ExpenseSummary 
+const ExportExpensesModal = ({
+  show,
+  onClose,
+  records,
+  summary,
+}: {
+  show: boolean;
+  onClose: () => void;
+  records: ExpenseRecord[];
+  summary: ExpenseSummary;
 }) => {
   const initialFileName = `Expenses_Report_${summary.year}`;
   const [fileName, setFileName] = useState(initialFileName);
-  
-  const [selectedColumns, setSelectedColumns] = useState(['purpose', 'amount', 'transactionDate', 'receiptUrl']);
+
+  const [selectedColumns, setSelectedColumns] = useState([
+    "purpose",
+    "amount",
+    "transactionDate",
+    "receiptUrl",
+  ]);
   const [isExporting, setIsExporting] = useState(false);
 
   const ALL_COLUMNS = [
-    { key: 'purpose', label: 'Purpose' },
-    { key: 'amount', label: 'Amount (P)' },
-    { key: 'transactionDate', label: 'Date' },
-    { key: 'receiptUrl', label: 'Receipt Link' },
+    { key: "purpose", label: "Purpose" },
+    { key: "amount", label: "Amount (P)" },
+    { key: "transactionDate", label: "Date" },
+    { key: "receiptUrl", label: "Receipt Link" },
   ];
 
   const handleToggleColumn = (key: string) => {
-    setSelectedColumns(prev => 
-      prev.includes(key) 
-        ? prev.filter(k => k !== key) 
-        : [...prev, key]
+    setSelectedColumns((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
   };
 
@@ -586,63 +641,68 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
     setIsExporting(true);
 
     try {
-      const { applyPlugin } = require('jspdf-autotable');
+      const { applyPlugin } = require("jspdf-autotable");
       applyPlugin(jsPDF);
     } catch (e) {
       console.error("Failed to apply jspdf-autotable plugin:", e);
     }
 
     if (records.length === 0) {
-      alert('Walang nakitang records para i-export.');
+      alert("Walang nakitang records para i-export.");
       setIsExporting(false);
       onClose();
       return;
     }
-    
-    const columns = ALL_COLUMNS.filter(col => selectedColumns.includes(col.key));
-    const headers = columns.map(col => col.label);
 
-    const data = records.map(record => {
+    const columns = ALL_COLUMNS.filter((col) =>
+      selectedColumns.includes(col.key)
+    );
+    const headers = columns.map((col) => col.label);
+
+    const data = records.map((record) => {
       const row: string[] = [];
-      columns.forEach(col => {
-        let value: string = '';
+      columns.forEach((col) => {
+        let value: string = "";
 
-        switch(col.key) {
-          case 'purpose':
-            value = record.purpose || 'N/A';
+        switch (col.key) {
+          case "purpose":
+            value = record.purpose || "N/A";
             break;
-          case 'amount':
-            value = record.amount !== undefined && record.amount !== null 
-              ? `P ${record.amount.toFixed(2)}`
-              : 'P 0.00'; 
+          case "amount":
+            value =
+              record.amount !== undefined && record.amount !== null
+                ? `P ${record.amount.toFixed(2)}`
+                : "P 0.00";
             break;
-          case 'transactionDate':
-            value = record.transactionDate 
-              ? record.transactionDate.toDate().toLocaleDateString('en-US') 
-              : 'N/A';
+          case "transactionDate":
+            value = record.transactionDate
+              ? record.transactionDate.toDate().toLocaleDateString("en-US")
+              : "N/A";
             break;
-          case 'receiptUrl':
-            value = record.receiptUrl ? 'Available (Link Not Included)' : 'No Proof';
+          case "receiptUrl":
+            value = record.receiptUrl
+              ? "Available (Link Not Included)"
+              : "No Proof";
             break;
           default:
-            value = 'N/A';
+            value = "N/A";
         }
         row.push(value);
       });
       return row;
     });
 
-    const doc = new jsPDF(); 
-    
+    const doc = new jsPDF();
+
     // @ts-ignore
-    (doc as any).autoTable({ 
-      startY: 35, 
+    (doc as any).autoTable({
+      startY: 35,
       head: [headers],
       body: data,
     });
 
     doc.save(`${fileName}.pdf`);
-    
+
     setIsExporting(false);
     onClose();
   };
@@ -652,27 +712,34 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+        >
           <X size={20} />
         </button>
-        <h2 className="text-2xl font-bold mb-6 text-gray-800 border-b pb-2">Export Expense Records</h2>
+        <h2 className="text-2xl font-bold mb-6 text-gray-800 border-b pb-2">
+          Export Expense Records
+        </h2>
 
         <div className="space-y-6">
           <div>
             <label className="block text-sm font-medium mb-1">File Name</label>
-            <input 
-              type="text" 
-              value={fileName} 
-              onChange={e => setFileName(e.target.value)} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-[#125648] focus:border-[#125648]" 
+            <input
+              type="text"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-[#125648] focus:border-[#125648]"
               disabled={isExporting}
             />
           </div>
-          
+
           <div>
-            <h3 className="text-base font-semibold text-gray-700 mb-3">Select Columns to Include</h3>
+            <h3 className="text-base font-semibold text-gray-700 mb-3">
+              Select Columns to Include
+            </h3>
             <div className="grid grid-cols-2 gap-3 max-h-40 overflow-y-auto p-3 border rounded-lg bg-gray-50">
-              {ALL_COLUMNS.map(col => (
+              {ALL_COLUMNS.map((col) => (
                 <div key={col.key} className="flex items-center">
                   <input
                     type="checkbox"
@@ -682,7 +749,10 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
                     className="h-4 w-4 text-[#125648] border-gray-300 rounded focus:ring-[#125648]"
                     disabled={isExporting}
                   />
-                  <label htmlFor={`exp-col-${col.key}`} className="ml-2 text-sm text-gray-700 cursor-pointer">
+                  <label
+                    htmlFor={`exp-col-${col.key}`}
+                    className="ml-2 text-sm text-gray-700 cursor-pointer"
+                  >
                     {col.label}
                   </label>
                 </div>
@@ -692,17 +762,23 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
         </div>
 
         <div className="mt-8 pt-4 border-t flex justify-end gap-3">
-          <button onClick={onClose} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300" disabled={isExporting}>
+          <button
+            onClick={onClose}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
+            disabled={isExporting}
+          >
             Cancel
           </button>
-          <button 
-            onClick={handleExportPDF} 
-            disabled={isExporting || selectedColumns.length === 0 || !fileName.trim()} 
+          <button
+            onClick={handleExportPDF}
+            disabled={
+              isExporting || selectedColumns.length === 0 || !fileName.trim()
+            }
             className="flex items-center gap-2 bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
           >
             {isExporting ? (
               <>
-                <FiRefreshCw className="animate-spin w-4 h-4"/> Exporting...
+                <FiRefreshCw className="animate-spin w-4 h-4" /> Exporting...
               </>
             ) : (
               <>
@@ -717,13 +793,24 @@ const ExportExpensesModal = ({ show, onClose, records, summary }: {
 };
 
 // --- STAT BOX ---
-const StatBox = ({ title, value, colorKey }: 
-  { title: string, value: string, isPrimary: boolean, isLarge: boolean, colorKey: 'blue' | 'red' }) => {
-
-  const borderColor = colorKey === 'blue' ? 'border-blue-500' : 'border-red-500';
+const StatBox = ({
+  title,
+  value,
+  colorKey,
+}: {
+  title: string;
+  value: string;
+  isPrimary: boolean;
+  isLarge: boolean;
+  colorKey: "blue" | "red";
+}) => {
+  const borderColor =
+    colorKey === "blue" ? "border-blue-500" : "border-red-500";
 
   return (
-    <div className={`bg-white p-5 rounded-lg shadow-md w-1/2 border-l-4 ${borderColor}`}>
+    <div
+      className={`bg-white p-5 rounded-lg shadow-md w-1/2 border-l-4 ${borderColor}`}
+    >
       <p className="text-sm text-gray-600 mb-1">{title}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
     </div>
@@ -731,9 +818,17 @@ const StatBox = ({ title, value, colorKey }:
 };
 
 // --- EXPENSE FORM MODAL ---
-const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: () => void, onSave: () => void }) => {
-  const [purpose, setPurpose] = useState('');
-  const [amount, setAmount] = useState('');
+const ExpenseFormModal = ({
+  show,
+  onClose,
+  onSave,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onSave: () => void;
+}) => {
+  const [purpose, setPurpose] = useState("");
+  const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().substring(0, 10));
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -746,9 +841,11 @@ const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: (
 
   const handleClearFile = () => {
     setImageFile(null);
-    const fileInput = document.getElementById('receipt-upload') as HTMLInputElement;
+    const fileInput = document.getElementById(
+      "receipt-upload"
+    ) as HTMLInputElement;
     if (fileInput) {
-      fileInput.value = '';
+      fileInput.value = "";
     }
   };
 
@@ -762,19 +859,13 @@ const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: (
 
     setIsSaving(true);
     try {
-      await addExpense(
-        purpose, 
-        parseFloat(amount), 
-        new Date(date), 
-        imageFile
-      );
+      await addExpense(purpose, parseFloat(amount), new Date(date), imageFile);
 
       onSave();
-      setPurpose('');
-      setAmount('');
+      setPurpose("");
+      setAmount("");
       setDate(new Date().toISOString().substring(0, 10));
       setImageFile(null);
-      
     } catch (error) {
       console.error("Error saving expense:", error);
       alert("Failed to submit expense.");
@@ -782,61 +873,72 @@ const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: (
       setIsSaving(false);
     }
   };
-  
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+        >
           <X size={20} />
         </button>
         <h2 className="text-xl font-bold mb-1 text-center">Expenses Details</h2>
-        <p className="text-sm text-gray-500 mb-4 text-center border-b pb-4">Please fill out the form below</p>
-        
+        <p className="text-sm text-gray-500 mb-4 text-center border-b pb-4">
+          Please fill out the form below
+        </p>
+
         <form onSubmit={handleSave} className="space-y-4">
           <div>
             <label className="block text-sm font-medium">Purpose</label>
-            <input 
-              type="text" 
-              value={purpose} 
-              onChange={e => setPurpose(e.target.value)} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]" 
+            <input
+              type="text"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
               placeholder="Enter the purpose of expenses, e.g. food"
               disabled={isSaving}
             />
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium">Amount of expenses</label>
-            <input 
-              type="number" 
-              value={amount} 
-              onChange={e => setAmount(e.target.value)} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]" 
+            <label className="block text-sm font-medium">
+              Amount of expenses
+            </label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
               placeholder="Enter the payment value"
               disabled={isSaving}
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium">Date</label>
-            <input 
-              type="date" 
-              value={date} 
-              onChange={e => setDate(e.target.value)} 
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
               disabled={isSaving}
             />
           </div>
-          
+
           <div className="pt-2">
-            <label className="block text-sm font-medium mb-1">Proof of expenses</label>
+            <label className="block text-sm font-medium mb-1">
+              Proof of expenses
+            </label>
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition cursor-pointer">
               {imageFile ? (
                 <div className="flex justify-between items-center">
-                  <p className="text-sm text-green-600">File selected: **{imageFile.name}**</p>
-                  <button 
-                    type="button" 
-                    onClick={handleClearFile} 
+                  <p className="text-sm text-green-600">
+                    File selected: **{imageFile.name}**
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClearFile}
                     className="text-red-500 hover:text-red-700 text-sm font-semibold ml-4"
                     disabled={isSaving}
                   >
@@ -846,27 +948,34 @@ const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: (
               ) : (
                 <>
                   <p className="text-3xl">🖼️</p>
-                  <p className="text-gray-500 text-sm">Upload an image or drag and drop</p>
+                  <p className="text-gray-500 text-sm">
+                    Upload an image or drag and drop
+                  </p>
                 </>
               )}
-              <input 
+              <input
                 id="receipt-upload"
-                type="file" 
+                type="file"
                 accept="image/*"
-                onChange={handleFileChange} 
-                className="opacity-0 absolute inset-0 cursor-pointer" 
+                onChange={handleFileChange}
+                className="opacity-0 absolute inset-0 cursor-pointer"
                 disabled={isSaving}
               />
             </div>
           </div>
-          
+
           <div className="mt-6 pt-4 border-t flex justify-center gap-3">
-            <button type="button" onClick={onClose} className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 font-semibold" disabled={isSaving}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 font-semibold"
+              disabled={isSaving}
+            >
               Cancel
             </button>
-            <button 
+            <button
               type="submit"
-              disabled={isSaving} 
+              disabled={isSaving}
               className="bg-[#125648] text-white px-6 py-2 rounded-lg hover:bg-[#0d3d33] font-semibold disabled:bg-gray-400"
             >
               {isSaving ? "Submitting..." : "Submit Expenses"}
@@ -881,38 +990,40 @@ const ExpenseFormModal = ({ show, onClose, onSave }: { show: boolean, onClose: (
 // --- MAIN EXPENSES COMPONENT ---
 export default function Expenses() {
   const [records, setRecords] = useState<ExpenseRecord[]>([]);
-  const [totalFunds, setTotalFunds] = useState<number>(0.00); 
+  const [totalFunds, setTotalFunds] = useState<number>(0.0);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingFunds, setIsLoadingFunds] = useState(false); 
-  const [showAddModal, setShowAddModal] = useState(false); 
-  const [showExportModal, setShowExportModal] = useState(false); 
+  const [isLoadingFunds, setIsLoadingFunds] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<ExpenseRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<ExpenseRecord | null>(
+    null
+  );
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
 
-  const currentYear = new Date().getFullYear(); 
+  const currentYear = new Date().getFullYear();
 
   // Navigation hook
   const navigate = useNavigate();
 
   // Navigation handlers
   const handleAdminClick = () => {
-    navigate('/EditModal');
+    navigate("/EditModal");
   };
 
   const handleDashboardClick = () => {
-    navigate('/Dashboard');
+    navigate("/Dashboard");
   };
 
   const fetchExpensesData = async () => {
     setIsLoading(true);
     try {
-      const expenseList = await fetchExpensesByYear(currentYear); 
+      const expenseList = await fetchExpensesByYear(currentYear);
       setRecords(expenseList);
     } catch (error) {
       console.error("Error fetching expenses:", error);
@@ -935,8 +1046,8 @@ export default function Expenses() {
 
   useEffect(() => {
     fetchExpensesData();
-    fetchFundsData(); 
-  }, [currentYear]); 
+    fetchFundsData();
+  }, [currentYear]);
 
   // Pagination calculations
   const currentRecords = useMemo(() => {
@@ -954,18 +1065,21 @@ export default function Expenses() {
   const totalExpensesThisYear = useMemo(() => {
     return records.reduce((sum, record) => sum + record.amount, 0);
   }, [records]);
-  
-  const expenseSummary: ExpenseSummary = useMemo(() => ({
-    totalExpenses: totalExpensesThisYear,
-    totalFunds: totalFunds,
-    year: currentYear
-  }), [totalExpensesThisYear, totalFunds, currentYear]);
+
+  const expenseSummary: ExpenseSummary = useMemo(
+    () => ({
+      totalExpenses: totalExpensesThisYear,
+      totalFunds: totalFunds,
+      year: currentYear,
+    }),
+    [totalExpensesThisYear, totalFunds, currentYear]
+  );
 
   const handleSuccess = () => {
     setShowAddModal(false);
-    fetchExpensesData(); 
-    fetchFundsData(); 
-  }
+    fetchExpensesData();
+    fetchFundsData();
+  };
 
   const handleEditClick = (record: ExpenseRecord) => {
     setSelectedRecord(record);
@@ -993,15 +1107,17 @@ export default function Expenses() {
       // Refresh the data
       await fetchExpensesData();
       await fetchFundsData();
-      
+
       // Close the modal
       setShowDeleteModal(false);
       setSelectedRecord(null);
-      
+
       console.log("Expense record deleted successfully");
     } catch (error) {
       console.error("Error deleting expense record:", error);
-      alert("Failed to delete expense record. Please check console for details.");
+      alert(
+        "Failed to delete expense record. Please check console for details."
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -1011,10 +1127,11 @@ export default function Expenses() {
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* TOP HEADER - Expenses Header */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        
         {/* Expenses Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Expenses</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+            Expenses
+          </h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -1022,14 +1139,14 @@ export default function Expenses() {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
             <ShareIcon className="h-5 w-5" /> 
-          </button>
+          </button> */}
 
           {/* ADMIN BUTTON: Navigation Handler */}
-          <div 
+          <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
-            onClick={handleAdminClick} 
+            onClick={handleAdminClick}
           >
             <UserCircleIcon className="h-8 w-8 text-white" />
             <span className="text-sm font-medium hidden sm:inline">Admin</span>
@@ -1039,33 +1156,41 @@ export default function Expenses() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 overflow-auto p-8">
-        <div className="bg-white shadow-xl rounded-lg p-6"> 
+        <div className="bg-white shadow-xl rounded-lg p-6">
           <div className="flex space-x-4 mb-6 border-b pb-6">
-            <StatBox 
-              title={`Total Funds ${currentYear}`} 
-              value={isLoadingFunds ? "Loading..." : `P ${totalFunds.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} 
-              isPrimary={false} 
-              isLarge={true} 
+            <StatBox
+              title={`Total Funds ${currentYear}`}
+              value={
+                isLoadingFunds
+                  ? "Loading..."
+                  : `P ${totalFunds.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+              }
+              isPrimary={false}
+              isLarge={true}
               colorKey="blue"
-            /> 
-            <StatBox 
-              title="Total Expenses this year" 
-              value={isLoading ? "Loading..." : `P ${totalExpensesThisYear.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} 
-              isPrimary={false} 
-              isLarge={true} 
+            />
+            <StatBox
+              title="Total Expenses this year"
+              value={
+                isLoading
+                  ? "Loading..."
+                  : `P ${totalExpensesThisYear.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+              }
+              isPrimary={false}
+              isLarge={true}
               colorKey="red"
-            /> 
+            />
           </div>
-          
+
           <div className="flex justify-end items-center pb-4 mb-4 space-x-3">
-            <button 
-              onClick={() => setShowExportModal(true)} 
-              disabled={isLoading || records.length === 0} 
+            <button
+              onClick={() => setShowExportModal(true)}
+              disabled={isLoading || records.length === 0}
               className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 shadow-sm disabled:opacity-50"
             >
               <FiDownload className="w-4 h-4" /> Export PDF
             </button>
-            <button 
+            <button
               onClick={() => setShowAddModal(true)}
               className="flex items-center gap-2 bg-[#125648] text-white px-4 py-2 text-sm font-medium rounded-lg shadow-md hover:bg-[#0d3d33]"
             >
@@ -1076,13 +1201,18 @@ export default function Expenses() {
           {/* FIXED TABLE STRUCTURE WITH PAGINATION */}
           <div className="overflow-x-auto border rounded-lg shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-object"> 
+              <thead className="bg-object">
                 <tr>
-                  {['Purpose', 'Amount', 'Date', 'Receipt', 'Actions'].map((header) => (
-                    <th key={header} className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">
-                      {header}
-                    </th>
-                  ))}
+                  {["Purpose", "Amount", "Date", "Receipt", "Actions"].map(
+                    (header) => (
+                      <th
+                        key={header}
+                        className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider"
+                      >
+                        {header}
+                      </th>
+                    )
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1108,18 +1238,20 @@ export default function Expenses() {
                         {`P ${record.amount.toFixed(2)}`}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {record.transactionDate.toDate().toLocaleDateString('en-US', { 
-                          month: 'short', 
-                          day: 'numeric', 
-                          year: 'numeric' 
-                        })}
+                        {record.transactionDate
+                          .toDate()
+                          .toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {record.receiptUrl ? (
-                          <a 
-                            href={record.receiptUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                          <a
+                            href={record.receiptUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="text-blue-500 hover:underline"
                           >
                             View Receipt
@@ -1153,7 +1285,7 @@ export default function Expenses() {
                 )}
               </tbody>
             </table>
-            
+
             {/* Pagination Component */}
             <Pagination
               currentPage={currentPage}
@@ -1162,19 +1294,19 @@ export default function Expenses() {
             />
           </div>
         </div>
-        
-        <ExpenseFormModal 
-          show={showAddModal} 
-          onClose={() => setShowAddModal(false)} 
+
+        <ExpenseFormModal
+          show={showAddModal}
+          onClose={() => setShowAddModal(false)}
           onSave={handleSuccess}
         />
 
-        <EditExpenseModal 
-          show={showEditModal} 
+        <EditExpenseModal
+          show={showEditModal}
           onClose={() => {
             setShowEditModal(false);
             setSelectedRecord(null);
-          }} 
+          }}
           onSave={handleEditSave}
           record={selectedRecord}
         />
@@ -1191,7 +1323,7 @@ export default function Expenses() {
           isDeleting={isDeleting}
         />
 
-        <ExportExpensesModal 
+        <ExportExpensesModal
           show={showExportModal}
           onClose={() => setShowExportModal(false)}
           records={records}

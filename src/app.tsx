@@ -12,11 +12,11 @@ import ProtectedRoute from "./components/Protectedroute";
 import Folder from "./pages/Folder";
 import Complaints from "./pages/Complaints";
 import Election from "./pages/Election";
-import MemAssoc from "./pages/Members/MemAssoc";
-import AccReg from "./pages/Members/AccReg";
+import MemAssoc from "./pages/MemAssoc";
+import AccReg from "./pages/AccReg";
 import Posting from "./pages/Posting";
 import "./App.css";
-import OffHoa from "./pages/Members/OffHoa";
+import OffHoa from "./pages/OffHoa";
 import EditModal from "./pages/EditModal"
 
 // Create a Dashboard Wrapper to handle navigation

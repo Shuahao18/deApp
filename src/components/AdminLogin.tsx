@@ -512,9 +512,7 @@ const AdminLogin: React.FC = () => {
       >
         <div className="w-full max-w-2xl text-center lg:text-left">
           {/* Work Image - Larger and Centered */}
-          <div className="flex justify-center lg:justify-start mb-8">
-           
-          </div>
+          <div className="flex justify-center lg:justify-start mb-8"></div>
 
           {/* Welcome Text Block */}
           <div className="space-y-6">
@@ -561,7 +559,7 @@ const AdminLogin: React.FC = () => {
             <h1 className="text-3xl font-bold text-white text-center mb-2">
               Login into HOA MS
             </h1>
-            <p className="text-gray-200 text-center text-sm">
+            <p className="text-yel text-center text-sm">
               Enter your credentials to access the system
             </p>
           </div>

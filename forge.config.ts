@@ -19,10 +19,16 @@ const cspPolicy = [
 ].join("; ");
 
 const config: ForgeConfig = {
-  packagerConfig: {},
-  rebuildConfig: {},
+  packagerConfig: {
+    name: "YourAppName",
+    executableName: "YourAppName",
+    icon: "./assets/hoa-img.ico",
+  },
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      name: "yourappname",
+      setupIcon: "./assets/hoa-img.ico",
+    }),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({}),
     new MakerDeb({}),
@@ -30,7 +36,7 @@ const config: ForgeConfig = {
   plugins: [
     new WebpackPlugin({
       mainConfig,
-      devContentSecurityPolicy: cspPolicy, // ✅ Dev CSP
+      devContentSecurityPolicy: cspPolicy,
       renderer: {
         config: rendererConfig,
         entryPoints: [

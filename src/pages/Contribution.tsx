@@ -12,8 +12,8 @@ import {
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { X, Check } from "lucide-react";
-import { UserCircleIcon, ShareIcon } from '@heroicons/react/24/outline';
-import { useNavigate } from 'react-router-dom';
+import { UserCircleIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { useNavigate } from "react-router-dom";
 
 import { db, storage } from "../Firebase";
 import {
@@ -29,7 +29,12 @@ import {
   orderBy,
   limit,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
 
 // --- TYPES ---
 interface Member {
@@ -88,24 +93,35 @@ const formatMonthYear = (date: Date) => {
 // --- MEMBER STATUS CHECK FUNCTION ---
 const checkAndUpdateMemberStatus = async () => {
   try {
-    console.log("--- 🚀 STARTING STATUS CHECK (CALENDAR MONTH DUE DATE) 🚀 ---");
+    console.log(
+      "--- 🚀 STARTING STATUS CHECK (CALENDAR MONTH DUE DATE) 🚀 ---"
+    );
 
     const membersSnap = await getDocs(collection(db, "members"));
     const today = new Date();
     const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const monthYearToCheck = formatMonthYear(lastMonth);
-    
-    const dueEnforcementDate = new Date(today.getFullYear(), today.getMonth(), 30);
+
+    const dueEnforcementDate = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      30
+    );
     const gracePeriodEnforcementStarts = new Date(dueEnforcementDate);
     gracePeriodEnforcementStarts.setDate(dueEnforcementDate.getDate() + 1);
-    
-    const isPastDueDate = today.getTime() >= gracePeriodEnforcementStarts.getTime();
+
+    const isPastDueDate =
+      today.getTime() >= gracePeriodEnforcementStarts.getTime();
 
     console.log(`Checking dues for: ${monthYearToCheck}`);
-    console.log(`Grace Period Enforcement Starts On: ${gracePeriodEnforcementStarts.toDateString()}`);
+    console.log(
+      `Grace Period Enforcement Starts On: ${gracePeriodEnforcementStarts.toDateString()}`
+    );
 
     if (!isPastDueDate) {
-      console.log("GRACE PERIOD IS ACTIVE. NO STATUS CHANGE WILL BE ENFORCED YET.");
+      console.log(
+        "GRACE PERIOD IS ACTIVE. NO STATUS CHANGE WILL BE ENFORCED YET."
+      );
       return;
     }
 
@@ -137,7 +153,9 @@ const checkAndUpdateMemberStatus = async () => {
           status: newStatus,
           statusUpdatedAt: today,
         });
-        console.log(`Status updated for ${member.firstName} (${memberAccNo}): ${member.status} -> ${newStatus}`);
+        console.log(
+          `Status updated for ${member.firstName} (${memberAccNo}): ${member.status} -> ${newStatus}`
+        );
       }
     }
 
@@ -171,8 +189,12 @@ const DeleteConfirmationModal = ({
             <X className="w-6 h-6 text-red-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-800">Delete Payment Record</h2>
-            <p className="text-sm text-gray-600">This action cannot be undone.</p>
+            <h2 className="text-xl font-bold text-gray-800">
+              Delete Payment Record
+            </h2>
+            <p className="text-sm text-gray-600">
+              This action cannot be undone.
+            </p>
           </div>
         </div>
 
@@ -181,10 +203,19 @@ const DeleteConfirmationModal = ({
             Are you sure you want to delete this payment record?
           </p>
           <div className="text-sm text-gray-700 space-y-1">
-            <p><strong>Account No:</strong> {record.accNo}</p>
-            <p><strong>Member:</strong> {record.name}</p>
-            <p><strong>Amount:</strong> P {record.amount.toFixed(2)}</p>
-            <p><strong>Date:</strong> {record.transactionDate.toDate().toLocaleDateString()}</p>
+            <p>
+              <strong>Account No:</strong> {record.accNo}
+            </p>
+            <p>
+              <strong>Member:</strong> {record.name}
+            </p>
+            <p>
+              <strong>Amount:</strong> P {record.amount.toFixed(2)}
+            </p>
+            <p>
+              <strong>Date:</strong>{" "}
+              {record.transactionDate.toDate().toLocaleDateString()}
+            </p>
           </div>
         </div>
 
@@ -232,7 +263,7 @@ const Pagination = ({
   const getPageNumbers = () => {
     const pages = [];
     const maxVisiblePages = 5;
-    
+
     if (totalPages <= maxVisiblePages) {
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
@@ -240,12 +271,12 @@ const Pagination = ({
     } else {
       const startPage = Math.max(1, currentPage - 2);
       const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-      
+
       for (let i = startPage; i <= endPage; i++) {
         pages.push(i);
       }
     }
-    
+
     return pages;
   };
 
@@ -280,7 +311,10 @@ const Pagination = ({
           </p>
         </div>
         <div>
-          <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+          <nav
+            className="isolate inline-flex -space-x-px rounded-md shadow-sm"
+            aria-label="Pagination"
+          >
             {/* First page button */}
             <button
               onClick={() => onPageChange(1)}
@@ -404,7 +438,7 @@ const EditPaymentModal = ({
       }
 
       const dateToSave = new Date(formData.transactionDate);
-      
+
       await updateDoc(doc(db, "contributions", record.id), {
         accNo: formData.accNo,
         name: formData.name,
@@ -678,7 +712,9 @@ const AddPaymentModal = ({
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        setMemberError(`Account No. ${accNo} not found or is inactive/deleted.`);
+        setMemberError(
+          `Account No. ${accNo} not found or is inactive/deleted.`
+        );
         setFormData((prev) => ({ ...prev, name: "" }));
       } else {
         const memberDoc = querySnapshot.docs[0];
@@ -720,7 +756,9 @@ const AddPaymentModal = ({
 
   const handleSave = async () => {
     if (memberError || !formData.name || isSearching) {
-      alert("Please enter a valid Account No. and ensure the Member Name is found.");
+      alert(
+        "Please enter a valid Account No. and ensure the Member Name is found."
+      );
       return;
     }
     if (!formData.amount || !formData.recipient || !formData.transactionDate) {
@@ -728,7 +766,9 @@ const AddPaymentModal = ({
       return;
     }
     if (!memberId) {
-      alert("Member information is not complete. Please check the account number.");
+      alert(
+        "Member information is not complete. Please check the account number."
+      );
       return;
     }
 
@@ -745,7 +785,9 @@ const AddPaymentModal = ({
       const existingPaymentSnapshot = await getDocs(existingPaymentQuery);
 
       if (!existingPaymentSnapshot.empty) {
-        alert(`This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`);
+        alert(
+          `This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`
+        );
         setIsSaving(false);
         return;
       }
@@ -944,7 +986,11 @@ const AddPaymentModal = ({
           <button
             onClick={handleSave}
             disabled={
-              isSaving || memberError !== "" || !formData.name || isSearching || !memberId
+              isSaving ||
+              memberError !== "" ||
+              !formData.name ||
+              isSearching ||
+              !memberId
             }
             className="bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
           >
@@ -1071,7 +1117,7 @@ const ExportModal = ({
     doc.text("Contribution Report", 14, 15);
     doc.setFontSize(10);
     doc.text(`Period: ${monthYear}`, 14, 22);
-    
+
     // @ts-ignore
     (doc as any).autoTable({
       startY: 30,
@@ -1186,9 +1232,10 @@ export default function Contribution() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<ContributionRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] =
+    useState<ContributionRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // ADDED: Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
@@ -1196,11 +1243,11 @@ export default function Contribution() {
   const navigate = useNavigate();
 
   const handleAdminClick = () => {
-    navigate('/EditModal');
+    navigate("/EditModal");
   };
 
   const handleDashboardClick = () => {
-    navigate('/Dashboard');
+    navigate("/Dashboard");
   };
 
   const fetchContributionData = async (month: Date) => {
@@ -1232,21 +1279,22 @@ export default function Contribution() {
       );
       const monthQuerySnapshot = await getDocs(monthQuery);
 
-      const contributionList: ContributionRecord[] = monthQuerySnapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || "N/A",
-          accNo: data.accNo,
-          name: data.name,
-          amount: data.amount,
-          paymentMethod: data.paymentMethod,
-          recipient: data.recipient,
-          transactionDate: data.transactionDate as Timestamp,
-          proofURL: data.proofURL,
-          monthYear: data.monthYear,
-        };
-      });
+      const contributionList: ContributionRecord[] =
+        monthQuerySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            userId: data.userId || "N/A",
+            accNo: data.accNo,
+            name: data.name,
+            amount: data.amount,
+            paymentMethod: data.paymentMethod,
+            recipient: data.recipient,
+            transactionDate: data.transactionDate as Timestamp,
+            proofURL: data.proofURL,
+            monthYear: data.monthYear,
+          };
+        });
 
       const paidMembers = new Set(contributionList.map((r) => r.accNo)).size;
       const unpaidMembers = Math.max(0, totalMembers - paidMembers);
@@ -1258,7 +1306,7 @@ export default function Contribution() {
         unpaidMembers,
         totalMembers,
       }));
-      
+
       // Reset to first page when data changes
       setCurrentPage(1);
     } catch (error) {
@@ -1315,14 +1363,16 @@ export default function Contribution() {
 
       await fetchContributionData(currentMonth);
       checkAndUpdateMemberStatus();
-      
+
       setShowDeleteModal(false);
       setSelectedRecord(null);
-      
+
       console.log("Payment record deleted successfully");
     } catch (error) {
       console.error("Error deleting payment record:", error);
-      alert("Failed to delete payment record. Please check console for details.");
+      alert(
+        "Failed to delete payment record. Please check console for details."
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -1357,10 +1407,11 @@ export default function Contribution() {
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* TOP HEADER - Contribution Header */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        
         {/* Contribution Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Contribution</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+            Contribution
+          </h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -1368,14 +1419,14 @@ export default function Contribution() {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
             <ShareIcon className="h-5 w-5" /> 
-          </button>
+          </button> */}
 
           {/* ADMIN BUTTON: Navigation Handler */}
-          <div 
+          <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
-            onClick={handleAdminClick} 
+            onClick={handleAdminClick}
           >
             <UserCircleIcon className="h-8 w-8 text-white" />
             <span className="text-sm font-medium hidden sm:inline">Admin</span>
@@ -1570,7 +1621,7 @@ export default function Contribution() {
                 )}
               </tbody>
             </table>
-            
+
             {/* Pagination Component */}
             <Pagination
               currentPage={currentPage}

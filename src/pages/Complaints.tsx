@@ -31,7 +31,7 @@ import {
   FaChevronRight,
 } from "react-icons/fa";
 import { UserCircle, Share } from "lucide-react";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from "react-router-dom";
 
 // --- INTERFACES ---
 
@@ -107,9 +107,17 @@ const getCardProps = (
     case "Pending Complaints":
       return { icon: FaUserClock, color: "bg-[#FFB700]", statusKey: "pending" };
     case "Complaints Solved":
-      return { icon: FaCheckCircle, color: "bg-[#007F5F]", statusKey: "solved" };
+      return {
+        icon: FaCheckCircle,
+        color: "bg-[#007F5F]",
+        statusKey: "solved",
+      };
     case "Rejected Complaints":
-      return { icon: FaTimesCircle, color: "bg-[#C70039]", statusKey: "rejected" };
+      return {
+        icon: FaTimesCircle,
+        color: "bg-[#C70039]",
+        statusKey: "rejected",
+      };
     default:
       return { icon: FaRegFile, color: "bg-gray-500", statusKey: "all" };
   }
@@ -136,7 +144,8 @@ const Complaints: React.FC = () => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [currentFilter, setCurrentFilter] = useState<ComplaintStatus>("pending");
+  const [currentFilter, setCurrentFilter] =
+    useState<ComplaintStatus>("pending");
   const [isAdmin, setIsAdmin] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -154,7 +163,7 @@ const Complaints: React.FC = () => {
   const navigate = useNavigate();
 
   const handleAdminClick = () => {
-    navigate('/EditModal');
+    navigate("/EditModal");
   };
 
   const handleCardClick = (statusKey: ComplaintStatus) => {
@@ -167,7 +176,8 @@ const Complaints: React.FC = () => {
     try {
       const adminDocRef = doc(db, "admin", user.uid);
       const adminSnap = await getDoc(adminDocRef);
-      const isUserAdmin = adminSnap.exists() && adminSnap.data()?.role === "Admin";
+      const isUserAdmin =
+        adminSnap.exists() && adminSnap.data()?.role === "Admin";
       setIsAdmin(isUserAdmin);
 
       const complaintsCollection = collection(db, "complaints");
@@ -180,7 +190,7 @@ const Complaints: React.FC = () => {
           orderBy("createdAt", "desc")
         );
       }
-      
+
       const snapshot = await getDocs(baseQuery);
 
       const data: Complaint[] = snapshot.docs.map((doc) => {
@@ -252,23 +262,24 @@ const Complaints: React.FC = () => {
   // Filter complaints based on search and current filter
   const filteredComplaints = useMemo(() => {
     let filtered = complaints;
-    
+
     // Apply status filter - UPDATED: When showing "all", exclude rejected complaints
-     if (currentFilter === "all") {
-    filtered = filtered.filter((c) => c.status !== "rejected");
-  } else {
-    filtered = filtered.filter((c) => c.status === currentFilter);
-  }
-    
+    if (currentFilter === "all") {
+      filtered = filtered.filter((c) => c.status !== "rejected");
+    } else {
+      filtered = filtered.filter((c) => c.status === currentFilter);
+    }
+
     // Apply search filter
     if (searchQuery) {
-      filtered = filtered.filter((c) =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.complaint.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.address.toLowerCase().includes(searchQuery.toLowerCase())
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.complaint.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.address.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
-    
+
     return filtered;
   }, [complaints, currentFilter, searchQuery]);
 
@@ -309,20 +320,24 @@ const Complaints: React.FC = () => {
         const updated = prevComplaints.map((c) =>
           c.id === complaintId ? { ...c, status: newStatus } : c
         );
-        
+
         // UPDATED COUNTS: Exclude rejected complaints from total count
-        const nonRejectedComplaints = updated.filter((c) => c.status !== "rejected");
+        const nonRejectedComplaints = updated.filter(
+          (c) => c.status !== "rejected"
+        );
         setTotalCount(nonRejectedComplaints.length);
         setNewCount(updated.filter((c) => c.status === "new").length);
         setPendingCount(updated.filter((c) => c.status === "pending").length);
         setSolvedCount(updated.filter((c) => c.status === "solved").length);
         setRejectedCount(updated.filter((c) => c.status === "rejected").length);
-        
+
         return updated;
       });
     } catch (error) {
       console.error("Error updating complaint status:", error);
-      alert("Failed to update complaint status. Check Firebase Rules or network.");
+      alert(
+        "Failed to update complaint status. Check Firebase Rules or network."
+      );
     } finally {
       setLoading(false);
     }
@@ -330,7 +345,11 @@ const Complaints: React.FC = () => {
 
   // DELETE FUNCTION FOR REJECTED COMPLAINTS
   const handleDeleteComplaint = async (complaintId: string) => {
-    if (!window.confirm("Are you sure you want to delete this rejected complaint? This action cannot be undone.")) {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this rejected complaint? This action cannot be undone."
+      )
+    ) {
       return;
     }
 
@@ -342,12 +361,14 @@ const Complaints: React.FC = () => {
       // Remove from local state
       setComplaints((prevComplaints) => {
         const updated = prevComplaints.filter((c) => c.id !== complaintId);
-        
+
         // UPDATED COUNTS: Exclude rejected complaints from total count
-        const nonRejectedComplaints = updated.filter((c) => c.status !== "rejected");
+        const nonRejectedComplaints = updated.filter(
+          (c) => c.status !== "rejected"
+        );
         setTotalCount(nonRejectedComplaints.length);
         setRejectedCount(updated.filter((c) => c.status === "rejected").length);
-        
+
         return updated;
       });
 
@@ -372,22 +393,28 @@ const Complaints: React.FC = () => {
   const getPageNumbers = () => {
     const pageNumbers = [];
     const maxVisiblePages = 5;
-    
+
     let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-    
+
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
-    
+
     for (let i = startPage; i <= endPage; i++) {
       pageNumbers.push(i);
     }
-    
+
     return pageNumbers;
   };
 
-  const counts = [totalCount, newCount, pendingCount, solvedCount, rejectedCount];
+  const counts = [
+    totalCount,
+    newCount,
+    pendingCount,
+    solvedCount,
+    rejectedCount,
+  ];
   const cardLabels = [
     "Total Complaints",
     "New Complaints",
@@ -401,7 +428,8 @@ const Complaints: React.FC = () => {
 
     if (c.status !== "solved" && c.status !== "rejected") {
       const nextStatus = c.status === "new" ? "pending" : "solved";
-      const buttonLabel = c.status === "new" ? "Accept (Set Pending)" : "Mark as Solved";
+      const buttonLabel =
+        c.status === "new" ? "Accept (Set Pending)" : "Mark as Solved";
       const buttonIcon = c.status === "new" ? FaUserClock : FaCheckCircle;
 
       return (
@@ -456,10 +484,11 @@ const Complaints: React.FC = () => {
     <div className="min-h-screen bg-[#F5F6FA] font-poppins">
       {/* TOP HEADER */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        
         {/* Complaints Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">Complaints</h1>
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+            Complaints
+          </h1>
         </div>
 
         {/* Empty Center for Balance */}
@@ -467,14 +496,14 @@ const Complaints: React.FC = () => {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
+          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
             <Share size={20} /> 
-          </button>
+          </button> */}
 
           {/* ADMIN BUTTON: Navigation Handler */}
-          <div 
+          <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
-            onClick={handleAdminClick} 
+            onClick={handleAdminClick}
           >
             <UserCircle size={32} />
             <span className="text-sm font-medium hidden sm:inline">Admin</span>
@@ -527,17 +556,22 @@ const Complaints: React.FC = () => {
         {/* Complaints List */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b text-gray-700 font-semibold">
-            {getTitleForFilter(currentFilter)} • {filteredComplaints.length} items
+            {getTitleForFilter(currentFilter)} • {filteredComplaints.length}{" "}
+            items
             <span className="text-sm text-gray-500 ml-2">
-              (Showing {paginatedComplaints.length} of {filteredComplaints.length})
+              (Showing {paginatedComplaints.length} of{" "}
+              {filteredComplaints.length})
             </span>
           </div>
 
           {loading ? (
-            <div className="p-6 text-sm text-gray-500">Loading complaints...</div>
+            <div className="p-6 text-sm text-gray-500">
+              Loading complaints...
+            </div>
           ) : paginatedComplaints.length === 0 ? (
             <div className="p-6 text-sm text-gray-500">
-              No {currentFilter === "all" ? "" : currentFilter} complaints found.
+              No {currentFilter === "all" ? "" : currentFilter} complaints
+              found.
             </div>
           ) : (
             <>
@@ -558,23 +592,30 @@ const Complaints: React.FC = () => {
                       {c.status}
                     </span>
                   </div>
-                
-                  <p className="text-sm text-gray-600 font-montserrat">Address: {c.address}</p>
-                  <p className="text-sm text-gray-600 font-montserrat">Contact: {c.contact}</p>
+
+                  <p className="text-sm text-gray-600 font-montserrat">
+                    Address: {c.address}
+                  </p>
+                  <p className="text-sm text-gray-600 font-montserrat">
+                    Contact: {c.contact}
+                  </p>
 
                   <div className="p-3 bg-gray-200 rounded-md border border-gray-100 mt-10 font-montserrat">
-                      <p className="text-xs text-gray-500 ">
-                    📅 {formatDate(c.createdAt)}
+                    <p className="text-xs text-gray-500 ">
+                      📅 {formatDate(c.createdAt)}
                     </p>
-                      <p className="text-base font-medium text-gray-700 mb-1">Message:</p>
-                      <p className="text-xs text-gray-500 leading-relaxed font-Montserrat">
+                    <p className="text-base font-medium text-gray-700 mb-1">
+                      Message:
+                    </p>
+                    <p className="text-xs text-gray-500 leading-relaxed font-Montserrat">
                       {c.complaint}
-                      </p>
+                    </p>
                   </div>
-      
+
                   {/* Attachments - ORIGINAL STYLING */}
                   <div className="flex gap-2 mt-4">
-                    {Array.isArray(c.attachments) && c.attachments.length > 0 ? (
+                    {Array.isArray(c.attachments) &&
+                    c.attachments.length > 0 ? (
                       c.attachments.map((att, index) => {
                         const isImage = att.type.includes("image/");
                         const IconComponent = getFileIcon(att.type);
