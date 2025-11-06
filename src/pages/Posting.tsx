@@ -70,6 +70,14 @@ interface ReactUser {
   createdAt?: any;
 }
 
+// 🌟 NEW: Notification Interface
+interface Notification {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+  visible: boolean;
+}
+
 // -----------------------------------------------------------
 // ProfileImage Component
 // -----------------------------------------------------------
@@ -143,6 +151,51 @@ const ProfileImage = ({
 };
 
 // -----------------------------------------------------------
+// Notification Component
+// -----------------------------------------------------------
+
+const NotificationContainer = ({ notifications, removeNotification }: {
+  notifications: Notification[];
+  removeNotification: (id: string) => void;
+}) => (
+  <div className="fixed top-4 right-4 z-50 space-y-2">
+    {notifications.map((notification) => (
+      <div
+        key={notification.id}
+        className={`p-4 rounded-lg shadow-lg border-l-4 transform transition-all duration-300 ${
+          notification.type === 'success'
+            ? 'bg-green-50 border-green-500 text-green-700'
+            : notification.type === 'error'
+            ? 'bg-red-50 border-red-500 text-red-700'
+            : 'bg-blue-50 border-blue-500 text-blue-700'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          {notification.type === 'success' && (
+            <CheckCircleIcon className="h-5 w-5 text-green-500" />
+          )}
+          {notification.type === 'error' && (
+            <ExclamationTriangleIcon className="h-5 w-5 text-red-500" />
+          )}
+          {notification.type === 'info' && (
+            <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
+          <span className="font-medium">{notification.message}</span>
+          <button
+            onClick={() => removeNotification(notification.id)}
+            className="ml-auto text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+// -----------------------------------------------------------
 // Main App Component
 // -----------------------------------------------------------
 
@@ -181,10 +234,35 @@ export default function App() {
     {}
   );
 
+  // 🌟 NEW: NOTIFICATION STATE 🌟
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 🌟 NEW: Navigation hook
   const navigate = useNavigate();
+
+  // 🌟 NEW: Notification functions
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Date.now().toString();
+    const newNotification: Notification = {
+      id,
+      message,
+      type,
+      visible: true
+    };
+
+    setNotifications(prev => [...prev, newNotification]);
+
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      removeNotification(id);
+    }, 5000);
+  };
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(notif => notif.id !== id));
+  };
 
   // 🌟 NEW: Navigation handlers
   const handleAdminClick = () => {
@@ -521,7 +599,7 @@ export default function App() {
   const handleAddComment = async (postId: string) => {
     if (!newComment.trim()) return;
     if (!user) {
-      alert("You must be logged in to comment.");
+      showNotification("You must be logged in to comment.", "error");
       return;
     }
     try {
@@ -543,16 +621,17 @@ export default function App() {
         });
       });
       setNewComment("");
+      showNotification("Comment added successfully!", "success");
     } catch (err) {
       console.error("Error commenting:", err);
-      alert("Failed to add comment. Check console.");
+      showNotification("Failed to add comment. Please try again.", "error");
     }
   };
 
   // 🌟 UPDATED: handleToggleReact without syncUserProfile 🌟
   const handleToggleReact = async (postId: string) => {
     if (!user) {
-      alert("You must be logged in to react.");
+      showNotification("You must be logged in to react.", "error");
       return;
     }
 
@@ -569,6 +648,7 @@ export default function App() {
             ...prev,
             [postId]: false,
           }));
+          showNotification("Reaction removed", "info");
         } else {
           const authorInfo = await getAuthorLabel(
             user.uid,
@@ -586,21 +666,23 @@ export default function App() {
             ...prev,
             [postId]: true,
           }));
+          showNotification("Post liked!", "success");
         }
       });
     } catch (err) {
       console.error("Error toggling react:", err);
+      showNotification("Failed to react. Please try again.", "error");
     }
   };
 
   // 🌟 UPDATED: handleCreatePost without syncUserProfile 🌟
   const handleCreatePost = async () => {
     if (!content.trim() && !fileToUpload) {
-      alert("Please add content or attach a file.");
+      showNotification("Please add content or attach a file.", "error");
       return;
     }
     if (!user || !isAdmin) {
-      alert("You do not have permission to create a post.");
+      showNotification("You do not have permission to create a post.", "error");
       return;
     }
 
@@ -647,6 +729,7 @@ export default function App() {
 
       setUploadProgress(100);
       handleCancelPost();
+      showNotification("Post created successfully!", "success");
     } catch (err) {
       console.error("Error creating post:", err);
       if (fileToUpload && mediaPath) {
@@ -657,7 +740,7 @@ export default function App() {
           console.error("Failed to clean up orphaned file:", cleanupErr);
         }
       }
-      alert("Failed to create post. Please try again.");
+      showNotification("Failed to create post. Please try again.", "error");
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -677,16 +760,12 @@ export default function App() {
 
   const handlePinPost = async (postId: string, currentPinStatus: boolean) => {
     if (!user || !isAdmin) {
-      alert("Only an admin can pin or unpin a post.");
+      showNotification("Only an admin can pin or unpin a post.", "error");
       return;
     }
 
     const newPinStatus = !currentPinStatus;
     const action = newPinStatus ? "pin" : "unpin";
-
-    if (!window.confirm(`Are you sure you want to ${action} this post?`)) {
-      return;
-    }
 
     try {
       const postRef = doc(db, "posts", postId);
@@ -702,16 +781,17 @@ export default function App() {
         });
       });
       console.log(`Post ${postId} successfully ${action}ned.`);
+      showNotification(`Post ${action}ned successfully!`, "success");
     } catch (err) {
       console.error(`Error ${action}ning post:`, err);
-      alert(`Failed to ${action} post. Please try again.`);
+      showNotification(`Failed to ${action} post. Please try again.`, "error");
     }
   };
 
-  // 🌟 UPDATED: Inline edit functions 🌟
+  // 🌟 UPDATED: Inline edit functions - NO AUTHOR RESTRICTION 🌟
   const startEditing = (post: Post) => {
-    if (!user || (!isAdmin && user.uid !== post.authorId)) {
-      alert("You do not have permission to edit this post.");
+    if (!isAdmin) {
+      showNotification("Only admins can edit posts.", "error");
       return;
     }
     setEditingPostId(post.id!);
@@ -727,7 +807,7 @@ export default function App() {
 
   const handleEditPost = async (postId: string) => {
     if (!editedContent.trim()) {
-      alert("Post content cannot be empty.");
+      showNotification("Post content cannot be empty.", "error");
       return;
     }
 
@@ -751,58 +831,108 @@ export default function App() {
       setEditingPostId(null);
       setEditedContent("");
       setEditedCategory("");
+      showNotification("Post updated successfully!", "success");
     } catch (err) {
       console.error("Error editing post:", err);
-      alert("Failed to edit post. Please try again.");
+      showNotification("Failed to edit post. Please try again.", "error");
     }
   };
 
+  // 🌟 FIXED: IMPROVED handleDeletePost - PROPER SUBCOLLECTION DELETION 🌟
   const handleDeletePost = async (post: Post) => {
     if (!user) {
-      alert("You must be logged in to delete a post.");
+      showNotification("You must be logged in to delete a post.", "error");
       return;
     }
 
-    const isAuthor = user.uid === post.authorId;
-    if (!isAuthor && !isAdmin) {
-      alert("You do not have permission to delete this post.");
+    if (!isAdmin) {
+      showNotification("Only admins can delete posts.", "error");
       return;
     }
 
     try {
-      const batch = writeBatch(db);
+      console.log("🧹 Starting delete process for post:", post.id);
+
+      // STEP 1: Delete all comments FIRST (individual operations)
+      try {
+        const commentsRef = collection(db, "posts", post.id!, "comments");
+        const commentsSnapshot = await getDocs(commentsRef);
+        
+        console.log(`🗑️ Found ${commentsSnapshot.size} comments to delete`);
+        
+        // Delete each comment individually
+        const commentDeletes = commentsSnapshot.docs.map(commentDoc => 
+          deleteDoc(commentDoc.ref)
+        );
+        
+        await Promise.all(commentDeletes);
+        console.log("✅ All comments deleted successfully");
+      } catch (commentsError) {
+        console.warn("⚠️ No comments to delete or comments deletion error:", commentsError);
+        // Continue with post deletion even if comments fail
+      }
+
+      // STEP 2: Delete all reacts (individual operations)
+      try {
+        const reactsRef = collection(db, "posts", post.id!, "reacts");
+        const reactsSnapshot = await getDocs(reactsRef);
+        
+        console.log(`❤️ Found ${reactsSnapshot.size} reacts to delete`);
+        
+        // Delete each react individually
+        const reactDeletes = reactsSnapshot.docs.map(reactDoc => 
+          deleteDoc(reactDoc.ref)
+        );
+        
+        await Promise.all(reactDeletes);
+        console.log("✅ All reacts deleted successfully");
+      } catch (reactsError) {
+        console.warn("⚠️ No reacts to delete or reacts deletion error:", reactsError);
+        // Continue with post deletion even if reacts fail
+      }
+
+      // STEP 3: Delete the main post
       const postRef = doc(db, "posts", post.id!);
+      await deleteDoc(postRef);
+      console.log("✅ Main post deleted successfully");
 
-      const commentsSnapshot = await getDocs(collection(postRef, "comments"));
-      commentsSnapshot.forEach((commentDoc) => {
-        batch.delete(commentDoc.ref);
-      });
-
-      const reactsSnapshot = await getDocs(collection(postRef, "reacts"));
-      reactsSnapshot.forEach((reactDoc) => {
-        batch.delete(reactDoc.ref);
-      });
-
-      batch.delete(postRef);
-      await batch.commit();
-
+      // STEP 4: Delete media file from storage if exists
       if (post.mediaUrl) {
         try {
-          const fileRef = ref(storage, post.mediaUrl);
+          // Extract file path from URL or use the stored path
+          let filePath = post.mediaUrl;
+          
+          // If it's a full URL, extract the path after the domain
+          if (post.mediaUrl.includes('firebasestorage.googleapis.com')) {
+            const urlParts = post.mediaUrl.split('/o/');
+            if (urlParts.length > 1) {
+              filePath = decodeURIComponent(urlParts[1].split('?')[0]);
+            }
+          }
+          
+          const fileRef = ref(storage, filePath);
           await deleteObject(fileRef);
+          console.log("✅ Media file deleted from storage");
         } catch (storageError) {
-          console.warn(
-            "Failed to delete file from storage. It may not exist.",
-            storageError
-          );
+          console.warn("⚠️ Could not delete media file:", storageError);
+          // Don't fail the whole operation if media delete fails
         }
       }
 
-      console.log("Post and all associated data deleted successfully.");
       setShowDeleteConfirm(null);
+      showNotification("deleted successfully!", "success");
+
     } catch (err) {
-      console.error("Error deleting post:", err);
-      alert("Failed to delete post. Please check the console for details.");
+      console.error("❌ Error deleting post:", err);
+      
+      // More detailed error logging
+      if (err instanceof Error) {
+        console.error("Error name:", err.name);
+        console.error("Error message:", err.message);
+        console.error("Error stack:", err.stack);
+      }
+      
+      showNotification("Failed to delete post. Please try again.", "error");
     }
   };
 
@@ -823,7 +953,7 @@ export default function App() {
       const file = e.target.files[0];
       const maxSize = 20 * 1024 * 1024;
       if (file.size > maxSize) {
-        alert("File size must be less than 20MB");
+        showNotification("File size must be less than 20MB", "error");
         return;
       }
 
@@ -846,14 +976,16 @@ export default function App() {
         "text/plain",
       ];
       if (!allowedTypes.includes(file.type)) {
-        alert(
-          "File type not supported. Please upload images, videos, audio, PDF, or document files."
+        showNotification(
+          "File type not supported. Please upload images, videos, audio, PDF, or document files.",
+          "error"
         );
         return;
       }
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
       setFileToUpload(file);
       setSelectedFileName(`${file.name} (${fileSizeMB} MB)`);
+      showNotification("File selected successfully", "success");
     } else {
       setFileToUpload(null);
       setSelectedFileName("");
@@ -957,10 +1089,6 @@ export default function App() {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                        <ShareIcon className="h-5 w-5" /> 
-                    </button> */}
-
           {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
@@ -1171,8 +1299,8 @@ export default function App() {
                         </button>
                       )}
 
-                      {/* 🌟 UPDATED: Edit and Delete Buttons - Inline Style 🌟 */}
-                      {(isAdmin || user?.uid === post.authorId) && (
+                      {/* 🌟 UPDATED: Edit and Delete Buttons - ADMIN ONLY 🌟 */}
+                      {isAdmin && (
                         <>
                           {/* Edit Post Button */}
                           {showDeleteConfirm !== post.id && (
@@ -1465,6 +1593,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* 🌟 NEW: Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        removeNotification={removeNotification} 
+      />
     </div>
   );
 }

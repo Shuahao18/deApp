@@ -29,6 +29,7 @@ import {
   FaTrash,
   FaChevronLeft,
   FaChevronRight,
+  FaExclamationTriangle,
 } from "react-icons/fa";
 import { UserCircle, Share } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -100,8 +101,6 @@ const getCardProps = (
   label: string
 ): { icon: React.ElementType; color: string; statusKey: ComplaintStatus } => {
   switch (label) {
-    case "Total Complaints":
-      return { icon: FaRegFile, color: "bg-[#555A6E]", statusKey: "all" };
     case "New Complaints":
       return { icon: FaInbox, color: "bg-[#D76C82]", statusKey: "new" };
     case "Pending Complaints":
@@ -148,9 +147,9 @@ const Complaints: React.FC = () => {
     useState<ComplaintStatus>("pending");
   const [isAdmin, setIsAdmin] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Complaint Counts
-  const [totalCount, setTotalCount] = useState(0);
   const [newCount, setNewCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [solvedCount, setSolvedCount] = useState(0);
@@ -230,9 +229,7 @@ const Complaints: React.FC = () => {
         } as Complaint;
       });
 
-      // UPDATED COUNTS: Exclude rejected complaints from total count
-      const nonRejectedComplaints = data.filter((c) => c.status !== "rejected");
-      setTotalCount(nonRejectedComplaints.length);
+      // UPDATED COUNTS: Removed totalCount
       setNewCount(data.filter((c) => c.status === "new").length);
       setPendingCount(data.filter((c) => c.status === "pending").length);
       setSolvedCount(data.filter((c) => c.status === "solved").length);
@@ -321,11 +318,7 @@ const Complaints: React.FC = () => {
           c.id === complaintId ? { ...c, status: newStatus } : c
         );
 
-        // UPDATED COUNTS: Exclude rejected complaints from total count
-        const nonRejectedComplaints = updated.filter(
-          (c) => c.status !== "rejected"
-        );
-        setTotalCount(nonRejectedComplaints.length);
+        // UPDATED COUNTS: Removed totalCount update
         setNewCount(updated.filter((c) => c.status === "new").length);
         setPendingCount(updated.filter((c) => c.status === "pending").length);
         setSolvedCount(updated.filter((c) => c.status === "solved").length);
@@ -343,16 +336,8 @@ const Complaints: React.FC = () => {
     }
   };
 
-  // DELETE FUNCTION FOR REJECTED COMPLAINTS
+  // DELETE FUNCTION FOR REJECTED COMPLAINTS - UPDATED WITHOUT POPUP
   const handleDeleteComplaint = async (complaintId: string) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to delete this rejected complaint? This action cannot be undone."
-      )
-    ) {
-      return;
-    }
-
     try {
       setLoading(true);
       const complaintDocRef = doc(db, "complaints", complaintId);
@@ -362,17 +347,14 @@ const Complaints: React.FC = () => {
       setComplaints((prevComplaints) => {
         const updated = prevComplaints.filter((c) => c.id !== complaintId);
 
-        // UPDATED COUNTS: Exclude rejected complaints from total count
-        const nonRejectedComplaints = updated.filter(
-          (c) => c.status !== "rejected"
-        );
-        setTotalCount(nonRejectedComplaints.length);
+        // UPDATED COUNTS: Removed totalCount update
         setRejectedCount(updated.filter((c) => c.status === "rejected").length);
 
         return updated;
       });
 
-      alert("Rejected complaint deleted successfully!");
+      // Reset delete confirmation
+      setDeleteConfirmId(null);
     } catch (error) {
       console.error("Error deleting complaint:", error);
       alert("Failed to delete complaint. Check Firebase Rules or network.");
@@ -408,15 +390,9 @@ const Complaints: React.FC = () => {
     return pageNumbers;
   };
 
-  const counts = [
-    totalCount,
-    newCount,
-    pendingCount,
-    solvedCount,
-    rejectedCount,
-  ];
+  // UPDATED: Removed totalCount from counts array
+  const counts = [newCount, pendingCount, solvedCount, rejectedCount];
   const cardLabels = [
-    "Total Complaints",
     "New Complaints",
     "Pending Complaints",
     "Complaints Solved",
@@ -464,15 +440,39 @@ const Complaints: React.FC = () => {
             <FaArrowLeft /> Revert to Pending
           </button>
 
-          {/* DELETE BUTTON - ONLY FOR REJECTED COMPLAINTS */}
+          {/* DELETE BUTTON - UPDATED WITHOUT POPUP */}
           {c.status === "rejected" && (
-            <button
-              onClick={() => handleDeleteComplaint(c.id)}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-red-600 hover:bg-red-700 text-sm font-medium transition"
-              disabled={loading}
-            >
-              <FaTrash /> Delete Complaint
-            </button>
+            <div className="flex gap-2">
+              {deleteConfirmId === c.id ? (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-md p-2">
+                  <FaExclamationTriangle className="text-red-500" />
+                  <span className="text-sm text-red-700 font-medium">
+                    Delete permanently?
+                  </span>
+                  <button
+                    onClick={() => handleDeleteComplaint(c.id)}
+                    className="flex items-center justify-center gap-1 px-3 py-1 rounded text-white bg-red-600 hover:bg-red-700 text-xs font-medium transition"
+                    disabled={loading}
+                  >
+                    <FaTrash /> Yes
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirmId(null)}
+                    className="flex items-center justify-center gap-1 px-3 py-1 rounded text-gray-700 bg-gray-200 hover:bg-gray-300 text-xs font-medium transition border border-gray-400"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setDeleteConfirmId(c.id)}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-md text-white bg-red-600 hover:bg-red-700 text-sm font-medium transition"
+                  disabled={loading}
+                >
+                  <FaTrash /> Delete Complaint
+                </button>
+              )}
+            </div>
           )}
         </div>
       );
@@ -496,11 +496,6 @@ const Complaints: React.FC = () => {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-            <Share size={20} /> 
-          </button> */}
-
-          {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
@@ -529,8 +524,8 @@ const Complaints: React.FC = () => {
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-4">
+        {/* Summary Cards - UPDATED: Changed to grid-cols-4 since we removed one card */}
+        <div className="grid grid-cols-4 gap-4">
           {cardLabels.map((label, index) => {
             const { icon: Icon, color, statusKey } = getCardProps(label);
             const isActive = currentFilter === statusKey;
@@ -612,7 +607,7 @@ const Complaints: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* Attachments - ORIGINAL STYLING */}
+                  {/* Attachments */}
                   <div className="flex gap-2 mt-4">
                     {Array.isArray(c.attachments) &&
                     c.attachments.length > 0 ? (
@@ -722,7 +717,7 @@ const Complaints: React.FC = () => {
         </div>
       </main>
 
-      {/* Image Viewer Modal - ORIGINAL STYLING */}
+      {/* Image Viewer Modal */}
       {selectedImage && (
         <div
           className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"

@@ -12,7 +12,7 @@ import {
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { X, Check } from "lucide-react";
-import { UserCircleIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useNavigate } from "react-router-dom";
 
 import { db, storage } from "../Firebase";
@@ -28,6 +28,8 @@ import {
   doc,
   orderBy,
   limit,
+  getDoc,
+  setDoc,
 } from "firebase/firestore";
 import {
   ref,
@@ -49,6 +51,7 @@ interface Member {
   roleInHOA: string;
   status: "Active" | "Inactive" | "Deleted";
   statusUpdatedAt?: Date;
+  createdAt?: Date;
 }
 
 type ContributionRecord = {
@@ -72,6 +75,56 @@ type ContributionSummary = {
   contributionAmount: number;
 };
 
+// --- NOTIFICATION TYPES ---
+interface Notification {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+  visible: boolean;
+}
+
+// --- NOTIFICATION COMPONENT ---
+const NotificationContainer = ({ notifications, removeNotification }: {
+  notifications: Notification[];
+  removeNotification: (id: string) => void;
+}) => (
+  <div className="fixed top-4 right-4 z-50 space-y-2">
+    {notifications.map((notification) => (
+      <div
+        key={notification.id}
+        className={`p-4 rounded-lg shadow-lg border-l-4 transform transition-all duration-300 ${
+          notification.type === 'success'
+            ? 'bg-green-50 border-green-500 text-green-700'
+            : notification.type === 'error'
+            ? 'bg-red-50 border-red-500 text-red-700'
+            : 'bg-blue-50 border-blue-500 text-blue-700'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          {notification.type === 'success' && (
+            <Check className="h-5 w-5 text-green-500" />
+          )}
+          {notification.type === 'error' && (
+            <X className="h-5 w-5 text-red-500" />
+          )}
+          {notification.type === 'info' && (
+            <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
+          <span className="font-medium">{notification.message}</span>
+          <button
+            onClick={() => removeNotification(notification.id)}
+            className="ml-auto text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 // --- HELPER FUNCTIONS ---
 
 const fetchTotalMembers = async (): Promise<number> => {
@@ -90,79 +143,245 @@ const formatMonthYear = (date: Date) => {
   return date.toLocaleString("en-US", { month: "long", year: "numeric" });
 };
 
-// --- MEMBER STATUS CHECK FUNCTION ---
+// Fetch monthly dues from Firebase
+const fetchMonthlyDues = async (): Promise<number> => {
+  try {
+    const duesDoc = await getDoc(doc(db, "settings", "dues"));
+    if (duesDoc.exists()) {
+      return duesDoc.data().amount || 30.0;
+    }
+    // Create default if doesn't exist
+    await setDoc(doc(db, "settings", "dues"), {
+      amount: 30.0,
+      lastUpdated: new Date(),
+      updatedBy: "system"
+    });
+    return 30.0;
+  } catch (error) {
+    console.error("Error fetching monthly dues:", error);
+    return 30.0; // Default fallback
+  }
+};
+
+// ✅ FIXED: AUTO STATUS UPDATE BASED ON CONTRIBUTION
 const checkAndUpdateMemberStatus = async () => {
   try {
-    console.log(
-      "--- 🚀 STARTING STATUS CHECK (CALENDAR MONTH DUE DATE) 🚀 ---"
-    );
+    console.log("--- 🔄 STARTING AUTO STATUS UPDATE (CONTRIBUTION-BASED) 🔄 ---");
 
-    const membersSnap = await getDocs(collection(db, "members"));
     const today = new Date();
-    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const monthYearToCheck = formatMonthYear(lastMonth);
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    
+    // Get current month we're checking
+    const currentMonthToCheck = new Date(currentYear, currentMonth, 1);
+    const monthYearToCheck = formatMonthYear(currentMonthToCheck);
 
-    const dueEnforcementDate = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      30
-    );
-    const gracePeriodEnforcementStarts = new Date(dueEnforcementDate);
-    gracePeriodEnforcementStarts.setDate(dueEnforcementDate.getDate() + 1);
+    console.log(`📅 Checking payments for: ${monthYearToCheck}`);
+    console.log(`📊 Today: ${today.toDateString()}`);
 
-    const isPastDueDate =
-      today.getTime() >= gracePeriodEnforcementStarts.getTime();
+    // ✅ GET ALL MEMBERS AND CURRENT MONTH CONTRIBUTIONS
+    const [membersSnap, contributionsSnap] = await Promise.all([
+      getDocs(query(collection(db, "members"), where("status", "!=", "Deleted"))),
+      getDocs(query(
+        collection(db, "contributions"), 
+        where("monthYear", "==", monthYearToCheck)
+      ))
+    ]);
 
-    console.log(`Checking dues for: ${monthYearToCheck}`);
-    console.log(
-      `Grace Period Enforcement Starts On: ${gracePeriodEnforcementStarts.toDateString()}`
-    );
+    // ✅ CREATE SET OF MEMBERS WHO PAID FOR CURRENT MONTH
+    const paidMembersSet = new Set();
+    contributionsSnap.docs.forEach(doc => {
+      const accNo = doc.data().accNo;
+      if (accNo) {
+        paidMembersSet.add(accNo);
+        console.log(`💰 Member ${accNo} PAID for ${monthYearToCheck}`);
+      }
+    });
 
-    if (!isPastDueDate) {
-      console.log(
-        "GRACE PERIOD IS ACTIVE. NO STATUS CHANGE WILL BE ENFORCED YET."
-      );
-      return;
-    }
+    console.log(`📈 Total members: ${membersSnap.docs.length}`);
+    console.log(`✅ Paid members this month: ${paidMembersSet.size}`);
 
-    for (const memberDoc of membersSnap.docs) {
-      const member = memberDoc.data() as Member;
+    const updatePromises = membersSnap.docs.map(async (memberDoc) => {
+      const member = memberDoc.data();
       const memberAccNo = member.accNo;
-      let newStatus = member.status;
+      
+      if (!memberAccNo) return null;
 
-      if (member.status === "Deleted" || !memberAccNo) continue;
+      const paidForCurrentMonth = paidMembersSet.has(memberAccNo);
+      const currentStatus = member.status;
 
-      const contributionQuery = query(
-        collection(db, "contributions"),
-        where("accNo", "==", memberAccNo),
-        where("monthYear", "==", monthYearToCheck),
-        limit(1)
-      );
+      console.log(`👤 ${memberAccNo} - ${member.firstName}: current=${currentStatus}, paid=${paidForCurrentMonth}`);
 
-      const paymentSnap = await getDocs(contributionQuery);
-      const paidForLastMonth = !paymentSnap.empty;
+      let newStatus = currentStatus;
 
-      if (!paidForLastMonth) {
-        newStatus = "Inactive";
-      } else {
+      // ✅ CRITICAL: AUTO UPDATE LOGIC
+      if (paidForCurrentMonth) {
+        // ✅ IF PAID FOR CURRENT MONTH - SET TO ACTIVE
         newStatus = "Active";
+        console.log(`🎯 ${memberAccNo}: PAID → ACTIVE`);
+      } else {
+        // ✅ IF NOT PAID - SET TO INACTIVE (except new members this month)
+        const memberCreatedAt = member.createdAt ? 
+          (member.createdAt instanceof Timestamp ? 
+            member.createdAt.toDate() : 
+            new Date(member.createdAt)) : 
+          new Date();
+        
+        const isNewMemberThisMonth = 
+          memberCreatedAt.getMonth() === currentMonth && 
+          memberCreatedAt.getFullYear() === currentYear;
+
+        if (isNewMemberThisMonth) {
+          // 🛡️ NEW MEMBER PROTECTION: Don't make inactive if created this month
+          console.log(`🛡️ ${memberAccNo}: NEW MEMBER this month - skipping status change`);
+          return null;
+        } else {
+          newStatus = "Inactive";
+          console.log(`📉 ${memberAccNo}: NOT PAID → INACTIVE`);
+        }
       }
 
-      if (newStatus !== member.status) {
-        await updateDoc(memberDoc.ref, {
+      // Only update if status actually changed
+      if (newStatus !== currentStatus) {
+        console.log(`🔄 STATUS CHANGE: ${memberAccNo} ${currentStatus} → ${newStatus}`);
+        return updateDoc(memberDoc.ref, {
           status: newStatus,
           statusUpdatedAt: today,
         });
-        console.log(
-          `Status updated for ${member.firstName} (${memberAccNo}): ${member.status} -> ${newStatus}`
-        );
+      } else {
+        console.log(`➡️ ${memberAccNo}: No change needed (${currentStatus})`);
       }
+
+      return null;
+    });
+
+    // Execute all updates
+    const results = await Promise.all(updatePromises);
+    const successfulUpdates = results.filter(result => result !== null).length;
+    
+    console.log(`--- ✅ AUTO STATUS UPDATE COMPLETE: ${successfulUpdates} members updated ---`);
+
+  } catch (error) {
+    console.error("❌ ERROR IN AUTO STATUS UPDATE:", error);
+  }
+};
+
+// --- EDIT DUES MODAL COMPONENT ---
+const EditDuesModal = ({
+  show,
+  onClose,
+  onSave,
+  currentAmount,
+}: {
+  show: boolean;
+  onClose: () => void;
+  onSave: (newAmount: number) => void;
+  currentAmount: number;
+}) => {
+  const [newAmount, setNewAmount] = useState(currentAmount);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (show) {
+      setNewAmount(currentAmount);
+    }
+  }, [show, currentAmount]);
+
+  if (!show) return null;
+
+  const handleSave = async () => {
+    if (newAmount <= 0) {
+      return;
     }
 
-    console.log("--- STATUS CHECK COMPLETE ---");
-  } catch (error) {
-    console.error("CRITICAL ERROR IN STATUS CHECK:", error);
-  }
+    if (newAmount === currentAmount) {
+      onClose();
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onSave(newAmount);
+      onClose();
+    } catch (error) {
+      console.error("Error updating monthly dues:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+        <h2 className="text-xl font-bold mb-4 border-b pb-2">
+          Edit Monthly Dues
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Update the monthly contribution amount for all members.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Current Monthly Dues
+            </label>
+            <div className="text-2xl font-bold text-gray-700 bg-gray-100 p-3 rounded-lg">
+              P {currentAmount.toFixed(2)}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              New Monthly Dues
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                P
+              </span>
+              <input
+                type="number"
+                value={newAmount}
+                onChange={(e) => setNewAmount(parseFloat(e.target.value) || 0)}
+                min="0"
+                step="0.01"
+                className="w-full border border-gray-300 rounded-lg px-10 py-3 pl-10 focus:ring-[#125648] focus:border-[#125648] text-lg font-semibold"
+                placeholder="Enter new amount"
+                disabled={isSaving}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              This will affect all members' default contribution amount.
+            </p>
+          </div>
+
+          {newAmount !== currentAmount && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <p className="text-sm text-yellow-700">
+                <strong>Note:</strong> Changing from P {currentAmount.toFixed(2)} to P {newAmount.toFixed(2)}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 pt-4 border-t flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving || newAmount <= 0}
+            className="bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
+          >
+            {isSaving ? "Updating..." : "Update Dues"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // --- DELETE CONFIRMATION MODAL COMPONENT ---
@@ -420,7 +639,6 @@ const EditPaymentModal = ({
 
   const handleSave = async () => {
     if (!formData.amount || !formData.recipient || !formData.transactionDate) {
-      alert("Please fill in all required payment details.");
       return;
     }
 
@@ -453,7 +671,6 @@ const EditPaymentModal = ({
       onClose();
     } catch (error) {
       console.error("Error updating contribution:", error);
-      alert("Failed to update payment. Please check console for details.");
     } finally {
       setIsSaving(false);
     }
@@ -620,6 +837,7 @@ const StatBox = ({
   isRed,
   isLarge,
   isMinimal,
+  onEdit,
 }: {
   title: string;
   value: string;
@@ -627,6 +845,7 @@ const StatBox = ({
   isRed?: boolean;
   isLarge?: boolean;
   isMinimal?: boolean;
+  onEdit?: () => void;
 }) => {
   const colorClass = isRed
     ? "bg-red-100 text-red-700"
@@ -634,7 +853,7 @@ const StatBox = ({
       ? "bg-[#125648] text-white"
       : "bg-gray-100 text-gray-800";
 
-  const sizeClass = isLarge ? "p-5 rounded-lg shadow-lg w-1/3" : "p-0";
+  const sizeClass = isLarge ? "p-5 rounded-lg shadow-lg w-1/3 relative" : "p-0";
   const titleSize = isLarge
     ? "text-sm font-medium uppercase opacity-90"
     : "text-sm text-gray-600";
@@ -643,6 +862,7 @@ const StatBox = ({
     : isRed
       ? "text-xl font-bold text-red-700"
       : "text-xl font-bold text-gray-900";
+  
   if (isMinimal) {
     return (
       <div className="flex flex-col">
@@ -651,10 +871,21 @@ const StatBox = ({
       </div>
     );
   }
+  
   return (
     <div
       className={`rounded-lg transition duration-150 ${sizeClass} ${colorClass}`}
     >
+      {/* Edit button for monthly dues */}
+      {onEdit && title === "Monthly Dues" && (
+        <button
+          onClick={onEdit}
+          className="absolute top-3 right-3 p-1 rounded-full hover:bg-black/10 transition-colors"
+          title="Edit monthly dues"
+        >
+          <FiEdit className={`w-4 h-4 ${isPrimary ? 'text-white' : 'text-gray-600'}`} />
+        </button>
+      )}
       <div className={titleSize}>{title}</div>
       <div
         className={`${valueSize} ${isPrimary ? "text-white" : "text-gray-900"}`}
@@ -756,19 +987,12 @@ const AddPaymentModal = ({
 
   const handleSave = async () => {
     if (memberError || !formData.name || isSearching) {
-      alert(
-        "Please enter a valid Account No. and ensure the Member Name is found."
-      );
       return;
     }
     if (!formData.amount || !formData.recipient || !formData.transactionDate) {
-      alert("Please fill in all required payment details.");
       return;
     }
     if (!memberId) {
-      alert(
-        "Member information is not complete. Please check the account number."
-      );
       return;
     }
 
@@ -785,9 +1009,6 @@ const AddPaymentModal = ({
       const existingPaymentSnapshot = await getDocs(existingPaymentQuery);
 
       if (!existingPaymentSnapshot.empty) {
-        alert(
-          `This member has already contributed. ${formData.accNo} has already paid for ${monthYear}. A member can only contribute once per month.`
-        );
         setIsSaving(false);
         return;
       }
@@ -828,7 +1049,6 @@ const AddPaymentModal = ({
       setMemberId("");
     } catch (error) {
       console.error("Error saving contribution:", error);
-      alert("Failed to save payment. Please check console for details.");
     } finally {
       setIsSaving(false);
     }
@@ -1059,7 +1279,6 @@ const ExportModal = ({
     }
 
     if (records.length === 0) {
-      alert("Walang nakitang records para i-export.");
       setIsExporting(false);
       onClose();
       return;
@@ -1218,7 +1437,7 @@ const ExportModal = ({
 
 // --- MAIN CONTRIBUTION COMPONENT ---
 export default function Contribution() {
-  const [currentMonth, setCurrentMonth] = useState(new Date("2025-06-01"));
+  const [currentMonth, setCurrentMonth] = useState(new Date());
   const [records, setRecords] = useState<ContributionRecord[]>([]);
   const [summary, setSummary] = useState<ContributionSummary>({
     totalFunds: 0,
@@ -1232,15 +1451,42 @@ export default function Contribution() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showEditDuesModal, setShowEditDuesModal] = useState(false);
   const [selectedRecord, setSelectedRecord] =
     useState<ContributionRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdatingDues, setIsUpdatingDues] = useState(false);
 
-  // ADDED: Pagination state
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
 
+  // Notification state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   const navigate = useNavigate();
+
+  // Notification functions
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Date.now().toString();
+    const newNotification: Notification = {
+      id,
+      message,
+      type,
+      visible: true
+    };
+
+    setNotifications(prev => [...prev, newNotification]);
+
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      removeNotification(id);
+    }, 5000);
+  };
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(notif => notif.id !== id));
+  };
 
   const handleAdminClick = () => {
     navigate("/EditModal");
@@ -1311,16 +1557,57 @@ export default function Contribution() {
       setCurrentPage(1);
     } catch (error) {
       console.error("Error fetching contributions:", error);
+      showNotification("Error fetching contribution data", "error");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Add this function to handle dues update
+  const handleUpdateDues = async (newAmount: number) => {
+    if (newAmount <= 0) {
+      showNotification("Monthly dues must be greater than 0.", "error");
+      return;
+    }
+
+    setIsUpdatingDues(true);
+    try {
+      // Update Firebase
+      await setDoc(doc(db, "settings", "dues"), {
+        amount: newAmount,
+        lastUpdated: new Date(),
+        updatedBy: "admin"
+      }, { merge: true });
+
+      // Update local state
+      setSummary(prev => ({
+        ...prev,
+        contributionAmount: newAmount
+      }));
+
+      showNotification("Monthly dues updated successfully!", "success");
+    } catch (error) {
+      console.error("Error updating monthly dues:", error);
+      showNotification("Failed to update monthly dues. Please try again.", "error");
+      throw error;
+    } finally {
+      setIsUpdatingDues(false);
+    }
+  };
+
+  // ✅ CRITICAL: AUTO STATUS UPDATE ON EVERY COMPONENT LOAD
   useEffect(() => {
+    console.log("🔄 Contribution component mounted - running auto status update");
     checkAndUpdateMemberStatus();
     fetchContributionData(currentMonth);
+    
+    // Fetch monthly dues
+    fetchMonthlyDues().then(amount => {
+      setSummary(prev => ({ ...prev, contributionAmount: amount }));
+    });
   }, [currentMonth]);
 
+  // ✅ AUTO STATUS UPDATE WHEN PAYMENTS ARE ADDED/EDITED/DELETED
   const handleMonthChange = (direction: "prev" | "next") => {
     setCurrentMonth((prev) => {
       const newMonth = new Date(prev.getTime());
@@ -1336,7 +1623,9 @@ export default function Contribution() {
 
   const handleEditSave = () => {
     fetchContributionData(currentMonth);
+    // ✅ AUTO UPDATE STATUS AFTER EDIT
     checkAndUpdateMemberStatus();
+    showNotification("Payment updated successfully!", "success");
   };
 
   const handleDeleteClick = (record: ContributionRecord) => {
@@ -1362,23 +1651,31 @@ export default function Contribution() {
       }
 
       await fetchContributionData(currentMonth);
+      // ✅ AUTO UPDATE STATUS AFTER DELETE
       checkAndUpdateMemberStatus();
 
       setShowDeleteModal(false);
       setSelectedRecord(null);
 
-      console.log("Payment record deleted successfully");
+      showNotification("Payment record deleted successfully!", "success");
     } catch (error) {
       console.error("Error deleting payment record:", error);
-      alert(
-        "Failed to delete payment record. Please check console for details."
-      );
+      showNotification("Failed to delete payment record. Please check console for details.", "error");
     } finally {
       setIsDeleting(false);
     }
   };
 
-  // ADDED: Pagination calculations
+  // ✅ AUTO STATUS UPDATE AFTER ADDING PAYMENT
+  const handleAddPaymentSave = () => {
+    setShowModal(false);
+    // ✅ CRITICAL: AUTO UPDATE STATUS AFTER ADDING PAYMENT
+    checkAndUpdateMemberStatus();
+    fetchContributionData(currentMonth);
+    showNotification("Payment added successfully!", "success");
+  };
+
+  // Pagination calculations
   const currentRecords = useMemo(() => {
     const indexOfLastRecord = currentPage * itemsPerPage;
     const indexOfFirstRecord = indexOfLastRecord - itemsPerPage;
@@ -1419,10 +1716,6 @@ export default function Contribution() {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-            <ShareIcon className="h-5 w-5" /> 
-          </button> */}
-
           {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
@@ -1450,6 +1743,7 @@ export default function Contribution() {
               value={`P ${summary.contributionAmount.toFixed(2)}`}
               isPrimary={false}
               isLarge={true}
+              onEdit={() => setShowEditDuesModal(true)}
             />
           </div>
 
@@ -1522,7 +1816,7 @@ export default function Contribution() {
           {/* Contribution Table */}
           <div className="overflow-x-auto border rounded-lg shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-object text-white">
+              <thead className="bg-[#125648] text-white">
                 <tr>
                   {[
                     "Acc. No.",
@@ -1546,7 +1840,7 @@ export default function Contribution() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-6 text-gray-50">
+                    <td colSpan={8} className="text-center py-6 text-gray-500">
                       <FiRefreshCw className="animate-spin inline-block mr-2 w-4 h-4 text-[#125648]" />
                       Loading records...
                     </td>
@@ -1590,7 +1884,7 @@ export default function Contribution() {
                             rel="noopener noreferrer"
                             className="text-blue-500 hover:underline"
                           >
-                            Image no. {record.id.substring(0, 4)}
+                            View Proof
                           </a>
                         ) : (
                           <span className="text-gray-400">-----</span>
@@ -1635,11 +1929,7 @@ export default function Contribution() {
         <AddPaymentModal
           show={showModal}
           onClose={() => setShowModal(false)}
-          onSave={() => {
-            setShowModal(false);
-            checkAndUpdateMemberStatus();
-            fetchContributionData(currentMonth);
-          }}
+          onSave={handleAddPaymentSave}
           monthYear={currentMonthDisplay}
         />
 
@@ -1673,7 +1963,21 @@ export default function Contribution() {
           records={records}
           monthYear={currentMonthDisplay}
         />
+
+        {/* Edit Dues Modal */}
+        <EditDuesModal
+          show={showEditDuesModal}
+          onClose={() => setShowEditDuesModal(false)}
+          onSave={handleUpdateDues}
+          currentAmount={summary.contributionAmount}
+        />
       </main>
+
+      {/* Notification Container */}
+      <NotificationContainer 
+        notifications={notifications} 
+        removeNotification={removeNotification} 
+      />
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   FiChevronsLeft,
   FiChevronsRight,
 } from "react-icons/fi";
-import { X } from "lucide-react";
+import { X, Check } from "lucide-react";
 import { UserCircleIcon, ShareIcon } from "@heroicons/react/24/outline";
 import { useNavigate } from "react-router-dom";
 import { db, storage } from "../Firebase";
@@ -47,6 +47,56 @@ type ExpenseSummary = {
   totalFunds: number;
   year: number;
 };
+
+// --- NOTIFICATION TYPES ---
+interface Notification {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+  visible: boolean;
+}
+
+// --- NOTIFICATION COMPONENT ---
+const NotificationContainer = ({ notifications, removeNotification }: {
+  notifications: Notification[];
+  removeNotification: (id: string) => void;
+}) => (
+  <div className="fixed top-4 right-4 z-50 space-y-2">
+    {notifications.map((notification) => (
+      <div
+        key={notification.id}
+        className={`p-4 rounded-lg shadow-lg border-l-4 transform transition-all duration-300 ${
+          notification.type === 'success'
+            ? 'bg-green-50 border-green-500 text-green-700'
+            : notification.type === 'error'
+            ? 'bg-red-50 border-red-500 text-red-700'
+            : 'bg-blue-50 border-blue-500 text-blue-700'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          {notification.type === 'success' && (
+            <Check className="h-5 w-5 text-green-500" />
+          )}
+          {notification.type === 'error' && (
+            <X className="h-5 w-5 text-red-500" />
+          )}
+          {notification.type === 'info' && (
+            <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
+          <span className="font-medium">{notification.message}</span>
+          <button
+            onClick={() => removeNotification(notification.id)}
+            className="ml-auto text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 // --- FIREBASE FUNCTIONS ---
 const EXPENSES_COLLECTION = "expenses";
@@ -443,7 +493,7 @@ const EditExpenseModal = ({
     e.preventDefault();
 
     if (!record?.id || !purpose || !amount || !date) {
-      alert("Please fill out all required fields.");
+      // Validation will be handled by parent via notifications
       return;
     }
 
@@ -462,7 +512,6 @@ const EditExpenseModal = ({
       onClose();
     } catch (error) {
       console.error("Error updating expense:", error);
-      alert("Failed to update expense.");
     } finally {
       setIsSaving(false);
     }
@@ -648,7 +697,7 @@ const ExportExpensesModal = ({
     }
 
     if (records.length === 0) {
-      alert("Walang nakitang records para i-export.");
+      // Validation will be handled by parent via notifications
       setIsExporting(false);
       onClose();
       return;
@@ -693,12 +742,21 @@ const ExportExpensesModal = ({
     });
 
     const doc = new jsPDF();
+    
+    // ADDED: Date header in PDF
+    doc.setFontSize(16);
+    doc.text("Expense Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Year: ${summary.year}`, 14, 22);
+    doc.text(`Generated on: ${new Date().toLocaleDateString("en-US")}`, 14, 28);
 
     // @ts-ignore
     (doc as any).autoTable({
       startY: 35,
       head: [headers],
       body: data,
+      theme: "striped",
+      headStyles: { fillColor: [18, 86, 72] },
     });
 
     doc.save(`${fileName}.pdf`);
@@ -853,7 +911,7 @@ const ExpenseFormModal = ({
     e.preventDefault();
 
     if (!purpose || !amount || !date) {
-      alert("Please fill out all required fields.");
+      // Validation will be handled by parent via notifications
       return;
     }
 
@@ -868,7 +926,6 @@ const ExpenseFormModal = ({
       setImageFile(null);
     } catch (error) {
       console.error("Error saving expense:", error);
-      alert("Failed to submit expense.");
     } finally {
       setIsSaving(false);
     }
@@ -1002,6 +1059,9 @@ export default function Expenses() {
   );
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // ADDED: Notification state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
@@ -1010,6 +1070,28 @@ export default function Expenses() {
 
   // Navigation hook
   const navigate = useNavigate();
+
+  // ADDED: Notification functions
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Date.now().toString();
+    const newNotification: Notification = {
+      id,
+      message,
+      type,
+      visible: true
+    };
+
+    setNotifications(prev => [...prev, newNotification]);
+
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      removeNotification(id);
+    }, 5000);
+  };
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(notif => notif.id !== id));
+  };
 
   // Navigation handlers
   const handleAdminClick = () => {
@@ -1027,6 +1109,7 @@ export default function Expenses() {
       setRecords(expenseList);
     } catch (error) {
       console.error("Error fetching expenses:", error);
+      showNotification("Error fetching expense data", "error");
     } finally {
       setIsLoading(false);
     }
@@ -1039,6 +1122,7 @@ export default function Expenses() {
       setTotalFunds(funds);
     } catch (error) {
       console.error("Error fetching funds:", error);
+      showNotification("Error fetching funds data", "error");
     } finally {
       setIsLoadingFunds(false);
     }
@@ -1079,6 +1163,7 @@ export default function Expenses() {
     setShowAddModal(false);
     fetchExpensesData();
     fetchFundsData();
+    showNotification("Expense added successfully!", "success");
   };
 
   const handleEditClick = (record: ExpenseRecord) => {
@@ -1089,6 +1174,7 @@ export default function Expenses() {
   const handleEditSave = () => {
     fetchExpensesData();
     fetchFundsData();
+    showNotification("Expense updated successfully!", "success");
   };
 
   // Delete handler functions
@@ -1112,12 +1198,10 @@ export default function Expenses() {
       setShowDeleteModal(false);
       setSelectedRecord(null);
 
-      console.log("Expense record deleted successfully");
+      showNotification("Expense record deleted successfully!", "success");
     } catch (error) {
       console.error("Error deleting expense record:", error);
-      alert(
-        "Failed to delete expense record. Please check console for details."
-      );
+      showNotification("Failed to delete expense record. Please check console for details.", "error");
     } finally {
       setIsDeleting(false);
     }
@@ -1139,10 +1223,6 @@ export default function Expenses() {
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-            <ShareIcon className="h-5 w-5" /> 
-          </button> */}
-
           {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
@@ -1219,6 +1299,7 @@ export default function Expenses() {
                 {isLoading ? (
                   <tr>
                     <td colSpan={5} className="text-center py-6 text-gray-500">
+                      <FiRefreshCw className="animate-spin inline-block mr-2 w-4 h-4 text-[#125648]" />
                       Loading expenses...
                     </td>
                   </tr>
@@ -1328,6 +1409,12 @@ export default function Expenses() {
           onClose={() => setShowExportModal(false)}
           records={records}
           summary={expenseSummary}
+        />
+
+        {/* ADDED: Notification Container */}
+        <NotificationContainer 
+          notifications={notifications} 
+          removeNotification={removeNotification} 
         />
       </main>
     </div>

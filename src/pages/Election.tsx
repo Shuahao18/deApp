@@ -13,8 +13,12 @@ import {
   where,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { UserCircleIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useNavigate } from "react-router-dom";
+
+// Toast notifications
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // The Candidate type reflects the data to be saved to Firestore
 type Candidate = {
@@ -78,18 +82,14 @@ export default function ElectionDashboard() {
   const [durationSeconds, setDurationSeconds] = useState<number>(0);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [electionAlreadyExists, setElectionAlreadyExists] =
-    useState<boolean>(false);
+  const [electionAlreadyExists, setElectionAlreadyExists] = useState<boolean>(false);
   const [activePosition, setActivePosition] = useState<string>("President");
   const [activeElectionId, setActiveElectionId] = useState<string | null>(null);
   const [activeElectionTitle, setActiveElectionTitle] = useState<string>("");
 
-  const [allCandidatesFromFirestore, setAllCandidatesFromFirestore] = useState<
-    DisplayCandidate[]
-  >([]);
+  const [allCandidatesFromFirestore, setAllCandidatesFromFirestore] = useState<DisplayCandidate[]>([]);
 
-  const [electionDetails, setElectionDetails] =
-    useState<ElectionDetails>(resetElectionForm());
+  const [electionDetails, setElectionDetails] = useState<ElectionDetails>(resetElectionForm());
 
   const [currentCandidate, setCurrentCandidate] = useState<{
     name: string;
@@ -127,6 +127,7 @@ export default function ElectionDashboard() {
       return activeMembers.length;
     } catch (error) {
       console.error("Failed to fetch active members:", error);
+      toast.error("Failed to fetch active members");
       return 0;
     }
   };
@@ -141,10 +142,11 @@ export default function ElectionDashboard() {
 
   const hasTallyBeenCalled = React.useRef(false);
 
-  // The core function for ending the election
+  // The core function for ending the election - FINAL GUARANTEED TIE-BREAKING LOGIC
   const tallyVotesAndSaveOfficials = async (electionId: string) => {
     if (!electionId) {
       console.error("No active election ID provided for tallying.");
+      toast.error("No active election ID provided");
       return;
     }
     if (hasTallyBeenCalled.current) {
@@ -214,44 +216,81 @@ export default function ElectionDashboard() {
         }
       });
 
-      // Step 5: Determine and save winners (new officials)
+      // Step 5: Determine and save winners (new officials) - FINAL GUARANTEED TIE LOGIC
       const positions = [...new Set(candidates.map((c) => c.position))];
       const electedOfficialsRef = collection(db, "elected_officials");
+
+      let totalWinners = 0;
+      let totalTies = 0;
+      let totalNoVotes = 0;
+
+      console.log("=== ELECTION TALLY PROCESS STARTED ===");
+      console.log(`Processing ${positions.length} positions`);
 
       for (const position of positions) {
         const candidatesForPosition = candidates.filter(
           (c) => c.position === position
         );
-        let winningCandidate: Candidate | null = null;
-        let maxVotes = -1;
-        let tieCount = 0;
+        
+        console.log(`\n--- Processing Position: ${position} ---`);
+        console.log(`Candidates:`, candidatesForPosition.map(c => c.name));
 
-        for (const candidate of candidatesForPosition) {
-          const currentVotes = voteCounts.get(candidate.id) || 0;
+        // Get all candidates for this position with their vote counts
+        const positionCandidates = candidatesForPosition.map(candidate => ({
+          ...candidate,
+          votes: voteCounts.get(candidate.id) || 0
+        }));
 
-          if (currentVotes > maxVotes) {
-            maxVotes = currentVotes;
-            winningCandidate = candidate;
-            tieCount = 1;
-          } else if (currentVotes === maxVotes && currentVotes > 0) {
-            tieCount++;
-          }
+        // Sort by votes descending
+        positionCandidates.sort((a, b) => b.votes - a.votes);
+
+        if (positionCandidates.length === 0) {
+          console.log(`❌ No candidates found for position: ${position}`);
+          continue;
         }
 
-        if (winningCandidate && maxVotes > 0 && tieCount === 1) {
+        const highestVotes = positionCandidates[0].votes;
+        
+        // CRITICAL: Find ALL candidates with the highest votes (not just first ones)
+        const candidatesWithHighestVotes = positionCandidates.filter(candidate => candidate.votes === highestVotes);
+        
+        console.log(`Highest votes: ${highestVotes}`);
+        console.log(`Number of candidates with highest votes: ${candidatesWithHighestVotes.length}`);
+        console.log(`Candidates with highest votes:`, candidatesWithHighestVotes.map(c => `${c.name}: ${c.votes}`));
+
+        // ULTIMATE WINNER DETERMINATION - ONLY THESE CONDITIONS ALLOW SAVING
+        const hasSingleWinner = candidatesWithHighestVotes.length === 1 && highestVotes > 0;
+        const hasTie = candidatesWithHighestVotes.length > 1 && highestVotes > 0;
+        const hasNoValidVotes = highestVotes === 0;
+
+        console.log(`Decision - Single Winner: ${hasSingleWinner}, Tie: ${hasTie}, No Votes: ${hasNoValidVotes}`);
+
+        if (hasSingleWinner) {
+          // ONLY save if there's exactly ONE clear winner with votes > 0
+          const winningCandidate = candidatesWithHighestVotes[0];
           const winnerDocRef = doc(electedOfficialsRef);
           batch.set(winnerDocRef, {
             name: winningCandidate.name,
             position: winningCandidate.position,
             termDuration: winningCandidate.termDuration,
             photoURL: winningCandidate.photoURL,
-            votes: maxVotes,
+            votes: highestVotes,
             positionIndex: POSITION_ORDER.indexOf(winningCandidate.position),
           });
+          totalWinners++;
+          console.log(`✅ WINNER SAVED for ${position}: ${winningCandidate.name} with ${highestVotes} votes`);
+        } else if (hasTie) {
+          // TIE SITUATION - ABSOLUTELY NO WINNER SAVED FOR THIS POSITION
+          console.log(`❌ TIE DETECTED for ${position}: ${candidatesWithHighestVotes.length} candidates with ${highestVotes} votes each - NO WINNER SAVED`);
+          console.log(`Tied candidates:`, candidatesWithHighestVotes.map(c => c.name));
+          totalTies++;
+        } else if (hasNoValidVotes) {
+          // NO VOTES - NO WINNER SAVED
+          console.log(`❌ No votes received for position: ${position} - NO WINNER SAVED`);
+          totalNoVotes++;
         } else {
-          console.log(
-            `Skipping saving official for ${position}. Reason: Tie (Count: ${tieCount}) or 0 Votes (Max: ${maxVotes}).`
-          );
+          // ANY OTHER SITUATION - NO WINNER SAVED (safety net)
+          console.log(`❌ Unknown situation for position: ${position} - NO WINNER SAVED`);
         }
       }
 
@@ -260,19 +299,41 @@ export default function ElectionDashboard() {
       batch.delete(electionDocRef);
 
       // Execute the atomic operation
+      console.log(`\n=== BATCH COMMIT SUMMARY ===`);
+      console.log(`Total winners to save: ${totalWinners}`);
+      console.log(`Total tied positions: ${totalTies}`);
+      console.log(`Total positions with no votes: ${totalNoVotes}`);
+      console.log(`Total positions processed: ${positions.length}`);
+      
+      // Final verification before commit
+      if (totalWinners === 0) {
+        console.log(`⚠️ NO WINNERS will be saved to elected_officials - collection will be empty`);
+      } else {
+        console.log(`✅ ${totalWinners} winner(s) will be saved to elected_officials`);
+      }
+
       await batch.commit();
 
-      console.log(
-        "Election ended and officials saved. Election and candidates deleted."
-      );
+      console.log(`\n🎉 ELECTION FINALIZED SUCCESSFULLY!`);
+      console.log(`Results - Winners: ${totalWinners}, Tied Positions: ${totalTies}, No Votes: ${totalNoVotes}`);
       setVotingActive(false);
-      alert("Election has been successfully ended and results are saved!");
-
+      
+      // Show appropriate toast message
+      if (totalTies > 0 && totalWinners === 0) {
+        toast.warning(`Election ended with ${totalTies} tied position(s). No winners were declared for any position.`);
+      } else if (totalTies > 0) {
+        toast.warning(`Election ended! ${totalWinners} winner(s) saved, but ${totalTies} position(s) tied with no winners.`);
+      } else if (totalWinners === 0) {
+        toast.warning(`Election ended but no winners were declared. All positions had ties or no votes.`);
+      } else {
+        toast.success(`Election ended successfully! ${totalWinners} official(s) have been saved.`);
+      }
+      
       hasTallyBeenCalled.current = false;
       window.location.reload();
     } catch (error) {
       console.error("Failed to tally votes or save officials:", error);
-      alert("An error occurred while ending the election.");
+      toast.error("An error occurred while ending the election.");
       hasTallyBeenCalled.current = false;
     } finally {
       setIsSubmitting(false);
@@ -505,7 +566,7 @@ export default function ElectionDashboard() {
       !currentCandidate.position ||
       !currentCandidate.imageFile
     ) {
-      alert("Please fill out all candidate fields and upload an image.");
+      toast.warning("Please fill out all candidate fields and upload an image.");
       return;
     }
 
@@ -527,9 +588,10 @@ export default function ElectionDashboard() {
 
       setCandidatesList((prev) => [...prev, newCandidate]);
       setCurrentCandidate(resetCandidateForm());
+      toast.success("Candidate added successfully!");
     } catch (error) {
       console.error("Error uploading image: ", error);
-      alert("Failed to upload image. Please try again.");
+      toast.error("Failed to upload image. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -537,7 +599,12 @@ export default function ElectionDashboard() {
 
   const handleSaveElection = async () => {
     if (!electionDetails.title || !candidatesList.length) {
-      alert("Please provide an election title and at least one candidate.");
+      toast.warning("Please provide an election title and at least one candidate.");
+      return;
+    }
+
+    if (!electionDetails.date || !electionDetails.startTime || !electionDetails.endTime) {
+      toast.warning("Please set the voting schedule first to enable the election process.");
       return;
     }
 
@@ -551,12 +618,12 @@ export default function ElectionDashboard() {
       );
 
       if (electionEndDate.getTime() <= electionStartDate.getTime()) {
-        alert("End time must be after start time.");
+        toast.error("End time must be after start time.");
         setIsSubmitting(false);
         return;
       }
       if (electionEndDate.getTime() <= Date.now()) {
-        alert("Election must be scheduled in the future.");
+        toast.error("Election must be scheduled in the future.");
         setIsSubmitting(false);
         return;
       }
@@ -588,9 +655,10 @@ export default function ElectionDashboard() {
       setShowForm(false);
 
       setActiveElectionId(newElectionRef.id);
+      toast.success("Election created successfully!");
     } catch (error) {
       console.error("Error saving election: ", error);
-      alert("Failed to save election. Please try again.");
+      toast.error("Failed to save election. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -598,15 +666,16 @@ export default function ElectionDashboard() {
 
   const handleStopVoting = async () => {
     if (!activeElectionId) {
-      alert("No active election to stop.");
+      toast.warning("No active election to stop.");
       return;
     }
 
-    if (
-      !window.confirm(
-        "Are you sure you want to end the voting now? This will permanently tally votes and save results."
-      )
-    ) {
+    // Custom confirmation modal
+    const userConfirmed = window.confirm(
+      "Are you sure you want to stop the election? This action cannot be undone."
+    );
+
+    if (!userConfirmed) {
       return;
     }
 
@@ -626,13 +695,23 @@ export default function ElectionDashboard() {
     );
   }, [allCandidatesFromFirestore]);
 
+  // Check if election schedule is complete
+  const isElectionScheduleComplete = useMemo(() => {
+    return electionDetails.date && electionDetails.startTime && electionDetails.endTime;
+  }, [electionDetails.date, electionDetails.startTime, electionDetails.endTime]);
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* Toast Container */}
+      <div className="toast-container">
+        {/* This will be used by react-toastify */}
+      </div>
+
       {/* UPDATED HEADER - Same as Dashboard */}
-      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-4 sm:px-6 flex justify-between items-center flex-shrink-0">
         {/* Page Title - Left Side */}
-        <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+        <div className="flex items-center space-x-2 sm:space-x-4">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel">
             Election Module
           </h1>
         </div>
@@ -641,33 +720,28 @@ export default function ElectionDashboard() {
         <div className="flex-1"></div>
 
         {/* Profile/User Icon on the Right */}
-        <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-            <ShareIcon className="h-5 w-5" /> 
-          </button> */}
-
-          {/* ADMIN BUTTON: Navigation Handler */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
           >
-            <UserCircleIcon className="h-8 w-8 text-white" />
+            <UserCircleIcon className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
             <span className="text-sm font-medium hidden sm:inline">Admin</span>
           </div>
         </div>
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-auto p-6">
-        <div className="space-y-6">
+      <main className="flex-1 overflow-auto p-4 sm:p-6">
+        <div className="space-y-4 sm:space-y-6">
           <div className="bg-white shadow rounded-lg overflow-hidden">
-            <div className="bg-object text-gray-100 px-6 py-4 flex items-center justify-between">
-              <div className="font-semibold">Election Status</div>
-              <div className="flex items-center gap-3">
+            <div className="bg-object text-gray-100 px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="font-semibold text-sm sm:text-base">Election Status</div>
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <select
                   value={year}
                   onChange={(e) => setYear(Number(e.target.value))}
-                  className="bg-object text-white px-3 py-1 rounded border border-gray-600"
+                  className="bg-object text-white px-2 sm:px-3 py-1 rounded border border-gray-600 text-sm w-full sm:w-auto"
                 >
                   <option value={2025}>2025</option>
                   <option value={2024}>2024</option>
@@ -675,76 +749,81 @@ export default function ElectionDashboard() {
                 </select>
                 <button
                   onClick={() => setShowForm(true)}
-                  className="flex items-center gap-2 bg-emerald-700 text-white px-3 py-1 rounded shadow disabled:bg-gray-500"
+                  className="flex items-center gap-1 sm:gap-2 bg-emerald-700 text-white px-2 sm:px-3 py-1 rounded shadow disabled:bg-gray-500 text-sm w-full sm:w-auto justify-center"
                   disabled={electionAlreadyExists}
                 >
-                  <FiPlus /> New Election
+                  <FiPlus className="w-3 h-3 sm:w-4 sm:h-4" /> 
+                  <span className="hidden sm:inline">New Election</span>
+                  <span className="sm:hidden">New</span>
                 </button>
               </div>
             </div>
 
-            <div className="p-6">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
-                <div className="relative bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                  <div className="border-l-4 border-amber-400 pl-4">
-                    <div className="text-sm text-amber-500">Total Voters</div>
-                    <div className="text-2xl font-semibold">
+            <div className="p-4 sm:p-6">
+              {/* Responsive Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6">
+                <div className="relative bg-white border rounded shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2 sm:gap-4">
+                  <div className="border-l-4 border-amber-400 pl-2 sm:pl-4">
+                    <div className="text-xs sm:text-sm text-amber-500">Total Voters</div>
+                    <div className="text-lg sm:text-2xl font-semibold">
                       {voterStats.total}
                     </div>
                   </div>
-                  <div className="ml-auto text-3xl text-amber-400">
+                  <div className="ml-auto text-xl sm:text-3xl text-amber-400">
                     <FaUsers />
                   </div>
                 </div>
 
-                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                  <div className="border-l-4 border-emerald-700 pl-4">
-                    <div className="text-sm text-emerald-700">Voted</div>
-                    <div className="text-2xl font-semibold">
+                <div className="bg-white border rounded shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2 sm:gap-4">
+                  <div className="border-l-4 border-emerald-700 pl-2 sm:pl-4">
+                    <div className="text-xs sm:text-sm text-emerald-700">Voted</div>
+                    <div className="text-lg sm:text-2xl font-semibold">
                       {voterStats.voted}
                     </div>
                   </div>
-                  <div className="ml-auto text-3xl text-emerald-700">
+                  <div className="ml-auto text-xl sm:text-3xl text-emerald-700">
                     <FaCheckCircle />
                   </div>
                 </div>
 
-                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                  <div className="border-l-4 border-red-500 pl-4">
-                    <div className="text-sm text-red-500">Not Voted</div>
-                    <div className="text-2xl font-semibold">
+                <div className="bg-white border rounded shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2 sm:gap-4">
+                  <div className="border-l-4 border-red-500 pl-2 sm:pl-4">
+                    <div className="text-xs sm:text-sm text-red-500">Not Voted</div>
+                    <div className="text-lg sm:text-2xl font-semibold">
                       {voterStats.notVoted}
                     </div>
                   </div>
-                  <div className="ml-auto text-3xl text-red-500">
+                  <div className="ml-auto text-xl sm:text-3xl text-red-500">
                     <FiXCircle />
                   </div>
                 </div>
 
-                <div className="bg-white border rounded shadow-sm px-4 py-4 flex items-center gap-4">
-                  <div className="border-l-4 border-gray-400 pl-4">
-                    <div className="text-sm text-gray-600">Voting Duration</div>
-                    <div className="text-2xl font-semibold">
+                <div className="bg-white border rounded shadow-sm px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-2 sm:gap-4">
+                  <div className="border-l-4 border-gray-400 pl-2 sm:pl-4">
+                    <div className="text-xs sm:text-sm text-gray-600">Voting Duration</div>
+                    <div className="text-lg sm:text-2xl font-semibold">
                       {formatDuration(durationSeconds)}
                     </div>
                   </div>
-                  <div className="ml-auto text-3xl text-gray-600">
+                  <div className="ml-auto text-xl sm:text-3xl text-gray-600">
                     <FiClock />
                   </div>
                 </div>
               </div>
 
-              <div className="mt-8 bg-white border rounded shadow-sm flex">
-                <aside className="w-48 bg-object text-white p-6">
-                  <nav className="flex flex-col gap-6 text-sm">
+              {/* Main Content Area - Responsive Layout */}
+              <div className="mt-6 sm:mt-8 bg-white border rounded shadow-sm flex flex-col lg:flex-row">
+                {/* Sidebar - Horizontal on mobile, Vertical on larger screens */}
+                <aside className="w-full lg:w-48 bg-object text-white p-4 lg:p-6">
+                  <nav className="flex lg:flex-col gap-3 lg:gap-6 text-sm overflow-x-auto lg:overflow-x-visible">
                     {allPositions.map((position) => (
                       <button
                         key={position}
                         onClick={() => setActivePosition(position)}
-                        className={`text-left ${
+                        className={`whitespace-nowrap text-left px-3 py-2 rounded ${
                           activePosition === position
-                            ? "font-bold text-emerald-300"
-                            : "text-white hover:text-emerald-300/80 transition"
+                            ? "font-bold bg-emerald-700 text-white"
+                            : "text-white hover:bg-emerald-700/50 transition"
                         }`}
                       >
                         {position}
@@ -753,9 +832,10 @@ export default function ElectionDashboard() {
                   </nav>
                 </aside>
 
-                <div className="flex-1 p-6">
-                  <div className="flex items-start justify-between">
-                    <h2 className="text-xl font-semibold">
+                {/* Main Content */}
+                <div className="flex-1 p-4 sm:p-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+                    <h2 className="text-lg sm:text-xl font-semibold">
                       {activeElectionTitle
                         ? `${activeElectionTitle} - ${year}`
                         : `Voting Count Election ${year}`}
@@ -764,7 +844,7 @@ export default function ElectionDashboard() {
                       {votingActive && (
                         <button
                           onClick={handleStopVoting}
-                          className="flex items-center gap-2 bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
+                          className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded disabled:bg-gray-400 text-sm w-full sm:w-auto justify-center"
                           disabled={!votingActive || isSubmitting}
                         >
                           <FiXCircle /> Stop Voting
@@ -773,51 +853,50 @@ export default function ElectionDashboard() {
                     </div>
                   </div>
 
-                  <div className="mt-6 bg-gray-50 border rounded p-8 shadow-inner">
+                  <div className="mt-4 sm:mt-6 bg-gray-50 border rounded p-4 sm:p-8 shadow-inner">
                     {filteredCandidates.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start text-center">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 items-start text-center">
                         {filteredCandidates.map((c) => (
                           <div
                             key={c.id}
-                            className="flex flex-col items-center gap-4 bg-white p-4 rounded-lg shadow"
+                            className="flex flex-col items-center gap-3 sm:gap-4 bg-white p-3 sm:p-4 rounded-lg shadow"
                           >
                             {c.photoURL ? (
                               <img
                                 src={c.photoURL}
                                 alt={c.name}
-                                className="w-40 h-40 rounded-full object-cover border-4 border-emerald-500"
+                                className="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 rounded-full object-cover border-4 border-emerald-500"
                               />
                             ) : (
-                              <div className="w-40 h-40 rounded-full bg-gray-300 flex items-center justify-center text-sm text-gray-500">
+                              <div className="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 rounded-full bg-gray-300 flex items-center justify-center text-xs sm:text-sm text-gray-500">
                                 No Image
                               </div>
                             )}
-                            <div className="text-lg font-bold">{c.name}</div>
-                            <div className="text-sm text-gray-600 font-medium">
+                            <div className="text-base sm:text-lg font-bold">{c.name}</div>
+                            <div className="text-xs sm:text-sm text-gray-600 font-medium">
                               {c.position}
                             </div>
-                            <div className="w-36 bg-emerald-100 border border-emerald-300 rounded-md py-3 text-2xl font-bold text-emerald-800">
+                            <div className="w-24 sm:w-36 bg-emerald-100 border border-emerald-300 rounded-md py-2 sm:py-3 text-lg sm:text-2xl font-bold text-emerald-800">
                               {c.votes}
                             </div>
-                            <div className="text-sm text-gray-500">Votes</div>
+                            <div className="text-xs sm:text-sm text-gray-500">Votes</div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="text-center text-gray-500 p-8">
+                      <div className="text-center text-gray-500 p-4 sm:p-8">
                         {votingActive ? (
                           <>
-                            <p className="text-xl font-medium">
+                            <p className="text-base sm:text-xl font-medium">
                               Walang kandidato para sa posisyon na ito.
                             </p>
-                            <p className="text-sm mt-2">
-                              Pumili ng ibang posisyon sa kaliwa.
+                            <p className="text-xs sm:text-sm mt-2">
+                              Pumili ng ibang posisyon sa itaas/kaliwa.
                             </p>
                           </>
                         ) : (
-                          <p className="text-xl font-medium">
-                            Walang aktibong eleksyon. Pindutin ang "New
-                            Election" para magsimula.
+                          <p className="text-base sm:text-xl font-medium">
+                            Walang aktibong eleksyon. Pindutin ang "New Election" para magsimula.
                           </p>
                         )}
                       </div>
@@ -830,204 +909,243 @@ export default function ElectionDashboard() {
         </div>
       </main>
 
+      {/* MODAL - RESPONSIVE */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 relative">
-            <button
-              onClick={() => {
-                setShowForm(false);
-                setCandidatesList([]);
-              }}
-              className="absolute top-2 right-2 text-gray-600 hover:text-black text-2xl"
-            >
-              ✕
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-2 sm:mx-4">
+            <div className="p-4 sm:p-6 relative">
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setCandidatesList([]);
+                }}
+                className="absolute top-2 right-2 text-gray-600 hover:text-black text-2xl"
+              >
+                ✕
+              </button>
 
-            <h2 className="text-2xl font-bold mb-6 border-b pb-2">
-              Create New Election
-            </h2>
+              <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 border-b pb-2">
+                Create New Election
+              </h2>
 
-            <div className="mb-6">
-              <h3 className="font-semibold mb-3 text-lg text-emerald-700">
-                Election Details
-              </h3>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium">
-                    Election Title
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
-                    name="title"
-                    value={electionDetails.title}
-                    onChange={handleElectionChange}
-                    disabled={electionAlreadyExists}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium">
-                    Election Date
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
-                    name="date"
-                    value={electionDetails.date}
-                    onChange={handleElectionChange}
-                    disabled={electionAlreadyExists}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium">
-                    Voting Time Duration
-                  </label>
-                  <div className="flex gap-2 mt-1">
+              {/* Election Details - Responsive Grid */}
+              <div className="mb-6">
+                <h3 className="font-semibold mb-3 text-base sm:text-lg text-emerald-700">
+                  Election Details
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium">
+                      Election Title
+                    </label>
                     <input
-                      type="time"
-                      className="w-full border rounded px-3 py-2 focus:border-emerald-500"
-                      name="startTime"
-                      value={electionDetails.startTime}
-                      onChange={handleElectionChange}
-                      disabled={electionAlreadyExists}
-                    />
-                    <span className="self-center font-medium">to</span>
-                    <input
-                      type="time"
-                      className="w-full border rounded px-3 py-2 focus:border-emerald-500"
-                      name="endTime"
-                      value={electionDetails.endTime}
+                      type="text"
+                      className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500 text-sm sm:text-base"
+                      name="title"
+                      value={electionDetails.title}
                       onChange={handleElectionChange}
                       disabled={electionAlreadyExists}
                     />
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="border p-4 rounded-lg bg-gray-50">
-              <h3 className="font-semibold mb-3 text-lg text-emerald-700">
-                Add Candidates
-              </h3>
-              <div className="grid grid-cols-4 gap-4">
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium">
-                    Candidate Name
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
-                    name="name"
-                    value={currentCandidate.name}
-                    onChange={handleCandidateChange}
-                  />
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium">Position</label>
-                  <select
-                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
-                    name="position"
-                    value={currentCandidate.position}
-                    onChange={handleCandidateChange}
-                  >
-                    {POSITION_ORDER.map((p) => (
-                      <option key={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium">
-                    Term Duration
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., 2 Years"
-                    className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500"
-                    name="termDuration"
-                    value={currentCandidate.termDuration}
-                    onChange={handleCandidateChange}
-                  />
-                </div>
-                <div className="col-span-1 relative flex items-center justify-center border-2 border-dashed rounded h-20 bg-white hover:border-emerald-500 transition">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    onChange={handleFileChange}
-                  />
-                  {currentCandidate.imageFile ? (
-                    <img
-                      src={URL.createObjectURL(currentCandidate.imageFile)}
-                      alt="Preview"
-                      className="w-full h-full object-cover rounded"
+                  <div>
+                    <label className="block text-sm font-medium">
+                      Election Date
+                    </label>
+                    <input
+                      type="date"
+                      className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500 text-sm sm:text-base"
+                      name="date"
+                      value={electionDetails.date}
+                      onChange={handleElectionChange}
+                      disabled={electionAlreadyExists}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">
+                      Voting Time Duration
+                    </label>
+                    <div className="flex gap-2 mt-1">
+                      <p>start</p>
+                      <input
+                        type="time"
+                        className="w-full border rounded px-3 py-2 focus:border-emerald-500 text-sm sm:text-base"
+                        name="startTime"
+                        value={electionDetails.startTime}
+                        onChange={handleElectionChange}
+                        disabled={electionAlreadyExists}
+                      />
+                      
+                       <p>end</p>
+                      <input
+                        type="time"
+                        className="w-full border rounded px-3 py-2 focus:border-emerald-500 text-sm sm:text-base"
+                        name="endTime"
+                        value={electionDetails.endTime}
+                        onChange={handleElectionChange}
+                        disabled={electionAlreadyExists}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add Candidates Section - Responsive Grid */}
+              <div className="border p-3 sm:p-4 rounded-lg bg-gray-50">
+                <h3 className="font-semibold mb-3 text-base sm:text-lg text-emerald-700">
+                  Add Candidates
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="sm:col-span-1">
+                    <label className="block text-sm font-medium">
+                      Candidate Name
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500 text-sm"
+                      name="name"
+                      value={currentCandidate.name}
+                      onChange={handleCandidateChange}
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-sm font-medium">Position</label>
+                    <select
+                      className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500 text-sm"
+                      name="position"
+                      value={currentCandidate.position}
+                      onChange={handleCandidateChange}
+                    >
+                      {POSITION_ORDER.map((p) => (
+                        <option key={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-sm font-medium">
+                      Term Duration
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., 2 Years"
+                      className="w-full border rounded px-3 py-2 mt-1 focus:border-emerald-500 text-sm"
+                      name="termDuration"
+                      value={currentCandidate.termDuration}
+                      onChange={handleCandidateChange}
+                    />
+                  </div>
+                  <div className="sm:col-span-1 relative flex items-center justify-center border-2 border-dashed rounded h-16 sm:h-20 bg-white hover:border-emerald-500 transition">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={handleFileChange}
+                    />
+                    {currentCandidate.imageFile ? (
+                      <img
+                        src={URL.createObjectURL(currentCandidate.imageFile)}
+                        alt="Preview"
+                        className="w-full h-full object-cover rounded"
+                      />
+                    ) : (
+                      <span className="text-gray-500 text-xs sm:text-sm text-center px-2">
+                        Tap to Add Image
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddCandidateToList}
+                  disabled={
+                    isSubmitting ||
+                    !currentCandidate.name ||
+                    !currentCandidate.imageFile
+                  }
+                  className="mt-4 bg-emerald-700 text-white px-3 sm:px-4 py-2 rounded hover:bg-emerald-800 disabled:bg-gray-400 text-xs sm:text-sm w-full sm:w-auto"
+                >
+                  {isSubmitting ? "Uploading..." : "+ Add Candidate to List"}
+                </button>
+              </div>
+
+              {/* Candidates List - Responsive */}
+              {candidatesList.length > 0 && (
+                <div className="mt-4 sm:mt-6 p-3 sm:p-4 border rounded bg-white">
+                  <h4 className="font-semibold mb-2 text-sm sm:text-base">
+                    Candidates Ready for Election:
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 sm:gap-4 text-xs sm:text-sm">
+                    <div className="font-bold hidden sm:block">Name</div>
+                    <div className="font-bold hidden sm:block">Position</div>
+                    <div className="font-bold hidden sm:block">Term</div>
+                    <div className="font-bold hidden sm:block">Action</div>
+                    {candidatesList.map((c, index) => (
+                      <React.Fragment key={index}>
+                        <div className="sm:col-span-1 font-semibold sm:font-normal">
+                          <span className="sm:hidden font-semibold">Name: </span>
+                          {c.name}
+                        </div>
+                        <div className="sm:col-span-1">
+                          <span className="sm:hidden font-semibold">Position: </span>
+                          {c.position}
+                        </div>
+                        <div className="sm:col-span-1">
+                          <span className="sm:hidden font-semibold">Term: </span>
+                          {c.termDuration || "N/A"}
+                        </div>
+                        <div className="sm:col-span-1">
+                          <button
+                            onClick={() =>
+                              setCandidatesList((prev) =>
+                                prev.filter((_, i) => i !== index)
+                              )
+                            }
+                            className="text-red-500 hover:text-red-700 text-xs w-full sm:w-auto text-left sm:text-center"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        {index < candidatesList.length - 1 && (
+                          <div className="col-span-full border-b my-2 sm:hidden"></div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Save Button */}
+              <div className="mt-4 sm:mt-6 text-right pt-4 border-t">
+                <button
+                  onClick={handleSaveElection}
+                  disabled={
+                    isSubmitting ||
+                    !candidatesList.length ||
+                    !electionDetails.title ||
+                    !isElectionScheduleComplete
+                  }
+                  className="relative bg-emerald-700 text-white px-4 sm:px-6 py-2 rounded-lg shadow hover:bg-emerald-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm sm:text-base w-full sm:w-auto transition-all duration-200 group"
+                >
+                  {isSubmitting ? (
+                    "Saving Election..."
                   ) : (
-                    <span className="text-gray-500 text-sm">
-                      Tap to Add Image
-                    </span>
+                    <>
+                      Save and Start Election
+                      {!isElectionScheduleComplete && (
+                        <div className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
+                          <span className="text-white text-xs font-bold">!</span>
+                        </div>
+                      )}
+                    </>
                   )}
-                </div>
+                </button>
+                
+                {/* Tooltip for disabled state */}
+                {!isElectionScheduleComplete && (
+                  <div className="mt-2 text-xs text-red-500 text-center">
+                    ⚠️ Please complete the election schedule first
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={handleAddCandidateToList}
-                disabled={
-                  isSubmitting ||
-                  !currentCandidate.name ||
-                  !currentCandidate.imageFile
-                }
-                className="mt-4 bg-emerald-700 text-white px-4 py-2 rounded hover:bg-emerald-800 disabled:bg-gray-400 text-sm"
-              >
-                {isSubmitting ? "Uploading..." : "+ Add Candidate to List"}
-              </button>
-            </div>
-
-            {candidatesList.length > 0 && (
-              <div className="mt-6 p-4 border rounded bg-white">
-                <h4 className="font-semibold mb-2">
-                  Candidates Ready for Election:
-                </h4>
-                <div className="grid grid-cols-4 gap-4 text-sm">
-                  <div className="font-bold">Name</div>
-                  <div className="font-bold">Position</div>
-                  <div className="font-bold">Term</div>
-                  <div className="font-bold">Action</div>
-                  {candidatesList.map((c, index) => (
-                    <React.Fragment key={index}>
-                      <div>{c.name}</div>
-                      <div>{c.position}</div>
-                      <div>{c.termDuration || "N/A"}</div>
-                      <button
-                        onClick={() =>
-                          setCandidatesList((prev) =>
-                            prev.filter((_, i) => i !== index)
-                          )
-                        }
-                        className="text-red-500 hover:text-red-700 text-xs text-left"
-                      >
-                        Remove
-                      </button>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 text-right pt-4 border-t">
-              <button
-                onClick={handleSaveElection}
-                disabled={
-                  isSubmitting ||
-                  !candidatesList.length ||
-                  !electionDetails.title ||
-                  !electionDetails.date
-                }
-                className="bg-emerald-700 text-white px-6 py-2 rounded-lg shadow hover:bg-emerald-800 disabled:bg-gray-400"
-              >
-                {isSubmitting
-                  ? "Saving Election..."
-                  : "Save and Start Election"}
-              </button>
             </div>
           </div>
         </div>

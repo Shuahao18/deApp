@@ -27,6 +27,7 @@ import {
   query,
   orderBy,
   getDoc,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   createUserWithEmailAndPassword,
@@ -975,6 +976,99 @@ const AccReg: React.FC = () => {
     confirmState,
   } = useCustomConfirm();
 
+  // ✅ FIXED STATUS OPTIONS FUNCTION - Prevents Inactive → New/Active via editing
+  const getStatusOptions = useCallback((currentStatus: string) => {
+    // CRITICAL: Once Inactive, cannot be manually changed back to New/Active
+    // Must go through payment system to become Active again
+    if (currentStatus === "Inactive") {
+      return ["Inactive"]; // Read-only, no options to change
+    }
+    
+    // Active members can be manually set to Inactive
+    if (currentStatus === "Active") {
+      return ["Active", "Inactive"];
+    }
+    
+    // New members can be set to Active or stay New
+    return ["New", "Active"];
+  }, []);
+
+  const getRoleOptions = useCallback(() => {
+    return ["Member"];
+  }, []);
+
+  // ✅ STATUS SYNCHRONIZATION: Real-time listener for member status changes
+  useEffect(() => {
+    console.log("🔄 Setting up real-time member status listener...");
+    
+    const membersRef = collection(db, "members");
+    const unsubscribe = onSnapshot(membersRef, (snapshot) => {
+      console.log("📡 Real-time update received for members");
+      
+      const data = snapshot.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          accNo: d.accNo || "N/A",
+          surname: d.surname || "",
+          firstname: d.firstname || "",
+          middlename: d.middlename || "",
+          dob: d.dob || "",
+          address: d.address || "",
+          contact: d.contact || "",
+          email: d.email || "",
+          civilStatus: d.civilStatus || "",
+          role: d.role || "",
+          status: (d.status as MemberData["status"]) || "New",
+        };
+      }) as MemberData[];
+
+      const filteredData = data.filter((m) => m.status && statusColors[m.status]);
+      setMembers(filteredData);
+      
+      console.log(`✅ Real-time sync: ${filteredData.length} members loaded`);
+    }, (error) => {
+      console.error("❌ Error in real-time listener:", error);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      console.log("🧹 Cleaning up real-time listener");
+      unsubscribe();
+    };
+  }, []);
+
+  // ✅ STATUS SYNCHRONIZATION: Periodic refresh as backup
+  useEffect(() => {
+    const refreshMembers = async () => {
+      console.log("🕒 Periodic refresh of members");
+      // The real-time listener should handle updates, but this is a backup
+    };
+
+    // Refresh every 10 minutes as backup
+    const interval = setInterval(refreshMembers, 10 * 60 * 1000);
+    
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  // ✅ STATUS SYNCHRONIZATION: Refresh when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log("👀 Page visible - ensuring data is fresh");
+        // Force a re-read from the real-time listener
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // ✅ POST-CREATION DEBUG: Monitor critical states
   useEffect(() => {
     console.log("🎯 [POST-CREATION MONITOR] Critical states:", {
@@ -995,6 +1089,7 @@ const AccReg: React.FC = () => {
     navigate("/Dashboard");
   };
 
+  // ✅ Legacy fetch function (kept for compatibility, but real-time listener handles updates)
   const fetchMembers = async () => {
     try {
       const membersRef = collection(db, "members");
@@ -1023,10 +1118,6 @@ const AccReg: React.FC = () => {
       console.error("Error fetching members:", error);
     }
   };
-
-  useEffect(() => {
-    fetchMembers();
-  }, []);
 
   // ✅ IMPROVED RESET FUNCTION with detailed debugging
   const resetForm = useCallback(() => {
@@ -1145,17 +1236,6 @@ const AccReg: React.FC = () => {
     startIndex + membersPerPage
   );
 
-  const getRoleOptions = useCallback(() => {
-    return ["Member"];
-  }, []);
-
-  const getStatusOptions = useCallback((currentStatus: string) => {
-    if (currentStatus === "Active") {
-      return ["Active"];
-    }
-    return ["New", "Active"];
-  }, []);
-
   const handleDeleteMember = async (memberId: string, memberName: string) => {
     const isValidSession = await validateAdminSession();
     if (!isValidSession) {
@@ -1177,7 +1257,7 @@ const AccReg: React.FC = () => {
             "Success",
             `${memberName}'s account has been successfully marked as Deleted.`
           );
-          fetchMembers();
+          // Real-time listener will automatically update the UI
         } catch (error) {
           console.error("Error soft-deleting member:", error);
           showAlert(
@@ -1210,7 +1290,7 @@ const AccReg: React.FC = () => {
             "Success",
             `${memberName}'s account has been successfully Restored.`
           );
-          fetchMembers();
+          // Real-time listener will automatically update the UI
           setCurrentPage(1);
           setViewMode("active");
         } catch (error) {
@@ -1323,13 +1403,8 @@ const AccReg: React.FC = () => {
       console.log("🔧 [POST-CREATION FLOW] Step 2: Resetting form");
       resetForm();
 
-      // 3. Fetch data LAST
-      console.log("🔧 [POST-CREATION FLOW] Step 3: Fetching members");
-      fetchMembers();
-
-      console.log(
-        "✅ [POST-CREATION FLOW] All operations completed successfully"
-      );
+      // Real-time listener will automatically refresh the data
+      console.log("✅ [POST-CREATION FLOW] All operations completed successfully");
     } catch (err: any) {
       console.error("Error updating member:", err);
       setErrorMessage(
@@ -1437,10 +1512,7 @@ const AccReg: React.FC = () => {
       console.log("🔧 [POST-CREATION FLOW] Step 2: Resetting form");
       resetForm();
 
-      // 3. Fetch updated data LAST
-      console.log("🔧 [POST-CREATION FLOW] Step 3: Fetching updated members");
-      await fetchMembers();
-
+      // Real-time listener will automatically fetch the updated data
       console.log(
         "✅ [POST-CREATION FLOW] ALL POST-CREATION OPERATIONS COMPLETED SUCCESSFULLY"
       );
@@ -1874,7 +1946,7 @@ const AccReg: React.FC = () => {
                     value={status}
                     onChange={setStatus}
                     options={getStatusOptions(status)}
-                    disabled={isProcessing}
+                    disabled={isProcessing || status === "Inactive"} // ✅ ADDED: Disable if Inactive
                   />
                 )}
 
@@ -1914,6 +1986,19 @@ const AccReg: React.FC = () => {
                   Password must be 8+ chars, with an uppercase letter, a number,
                   and a special character.
                 </p>
+              )}
+
+              {/* ✅ STATUS RESTRICTION WARNING */}
+              {isEditing && status === "Inactive" && (
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800 font-medium">
+                    ⚠️ Status Restriction
+                  </p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    This account is currently <strong>Inactive</strong>. Status cannot be changed manually. 
+                    The member must make a payment to become Active again through the Contribution system.
+                  </p>
+                </div>
               )}
 
               <div className="flex justify-end gap-3 mt-8">

@@ -33,7 +33,7 @@ const CustomAlert: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
         <p className="text-gray-600 mb-6">{message}</p>
         <div className="flex justify-end">
@@ -62,7 +62,7 @@ const CustomConfirm: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
         <p className="text-gray-600 mb-6 whitespace-pre-line">{message}</p>
         <div className="flex justify-end gap-3">
@@ -163,7 +163,7 @@ interface Official {
   contactNo?: string;
   email: string;
   termDuration?: string;
-  photoURL?: string;
+  photoURL?: string | null;
   address?: string;
   authUid?: string;
 }
@@ -176,7 +176,7 @@ interface CommitteeMember {
   email?: string;
   dateElected?: string;
   termDuration?: string;
-  photoURL?: string;
+  photoURL?: string | null;
   authUid?: string;
   address?: string;
 }
@@ -262,7 +262,7 @@ const COMMITTEE_OFFICERS_POSITIONS = [
 ];
 
 // --- GLOBAL HELPER FUNCTION ---
-const deleteOldPhoto = async (oldPhotoUrl?: string) => {
+const deleteOldPhoto = async (oldPhotoUrl?: string | null) => {
   if (!oldPhotoUrl || !oldPhotoUrl.includes("firebasestorage.googleapis.com"))
     return;
 
@@ -279,7 +279,7 @@ const deleteOldPhoto = async (oldPhotoUrl?: string) => {
   }
 };
 
-// --- MODAL COMPONENTS ---
+// --- RESPONSIVE MODAL COMPONENTS ---
 
 // *********** LinkAccountModal ***********
 const LinkAccountModal: React.FC<LinkAccountModalProps> = ({
@@ -442,7 +442,7 @@ const LinkAccountModal: React.FC<LinkAccountModalProps> = ({
     return (
       <>
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
+          <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md mx-4">
             <h2 className="text-xl font-bold mb-4 text-green-600">
               Account Already Linked
             </h2>
@@ -480,7 +480,7 @@ const LinkAccountModal: React.FC<LinkAccountModalProps> = ({
   return (
     <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
+        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
           <h2 className="text-xl font-bold mb-4">
             Link Account for {member.name}
           </h2>
@@ -567,7 +567,7 @@ const LinkAccountModal: React.FC<LinkAccountModalProps> = ({
   );
 };
 
-// *********** EditOfficialModal ***********
+// *********** EditOfficialModal - RESPONSIVE VERSION ***********
 const EditOfficialModal: React.FC<EditModalProps> = ({
   official,
   onClose,
@@ -581,7 +581,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
     email: "",
     contactNo: "",
     termDuration: "",
-    photoURL: "",
+    photoURL: null,
     address: "",
   };
 
@@ -650,8 +650,8 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
     setError(null);
   };
 
-  const handleImageUpload = async (): Promise<string | undefined> => {
-    if (!selectedFile) return imagePreviewUrl || undefined;
+  const handleImageUpload = async (): Promise<string | null> => {
+    if (!selectedFile) return null;
 
     const officialId = initialOfficial.id || "new";
     const storageRef = ref(
@@ -668,7 +668,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
     setIsSaving(true);
 
     const dataToSave = formData;
-    let finalPayload: Partial<Official> = dataToSave;
+    let finalPayload: Partial<Official> = { ...dataToSave };
 
     try {
       if (!dataToSave.name || !dataToSave.position || !dataToSave.email) {
@@ -677,15 +677,24 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
         return;
       }
 
-      const newPhotoURL = await handleImageUpload();
-      finalPayload.photoURL = newPhotoURL;
+      // Handle photo upload and set photoURL properly
+      if (selectedFile) {
+        finalPayload.photoURL = await handleImageUpload();
+      } else if (!imagePreviewUrl && initialOfficial.photoURL) {
+        // If clearing the photo (no preview and had previous photo)
+        await deleteOldPhoto(initialOfficial.photoURL);
+        finalPayload.photoURL = null; // Explicitly set to null instead of undefined
+      } else if (imagePreviewUrl === initialOfficial.photoURL) {
+        // Photo unchanged, keep existing URL
+        finalPayload.photoURL = initialOfficial.photoURL;
+      } else {
+        // No photo selected and no existing photo, set to null
+        finalPayload.photoURL = null;
+      }
 
-      if (!isAddingNew && initialOfficial.photoURL) {
-        if (newPhotoURL && newPhotoURL !== initialOfficial.photoURL) {
-          await deleteOldPhoto(initialOfficial.photoURL);
-        } else if (!newPhotoURL && initialOfficial.photoURL) {
-          await deleteOldPhoto(initialOfficial.photoURL);
-        }
+      // Ensure photoURL is never undefined
+      if (finalPayload.photoURL === undefined) {
+        finalPayload.photoURL = null;
       }
 
       if (isAddingNew) {
@@ -727,178 +736,206 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
   return (
     <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
-          <h2 className="text-xl font-bold mb-4">
-            {isAddingNew
-              ? "Add New HOA Official"
-              : `Edit Official: ${initialOfficial.name}`}
-            {isExecutiveOfficer && (
-              <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                Executive Officer
-              </span>
+        <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="p-6 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-xl font-bold">
+              {isAddingNew
+                ? "Add New HOA Official"
+                : `Edit Official: ${initialOfficial.name}`}
+              {isExecutiveOfficer && (
+                <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  Executive Officer
+                </span>
+              )}
+            </h2>
+          </div>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {error && (
+              <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">
+                {error}
+              </div>
             )}
-          </h2>
-          {error && (
-            <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">
-              {error}
-            </div>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Profile Photo
-              </label>
-              <div className="mt-1 flex items-center space-x-4">
-                {imagePreviewUrl ? (
-                  <div className="relative">
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Preview"
-                      className="w-20 h-20 rounded-full object-cover border border-gray-300"
+            
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Photo Section */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Profile Photo
+                </label>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex-shrink-0">
+                    {imagePreviewUrl ? (
+                      <div className="relative">
+                        <img
+                          src={imagePreviewUrl}
+                          alt="Preview"
+                          className="w-20 h-20 rounded-full object-cover border border-gray-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleClearPhoto}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs hover:bg-red-600 transition-colors"
+                          aria-label="Clear photo"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs text-center">
+                        No Image
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      className="hidden"
+                      accept="image/*"
                     />
                     <button
                       type="button"
-                      onClick={handleClearPhoto}
-                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs hover:bg-red-600 transition-colors"
-                      aria-label="Clear photo"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
                     >
-                      <X size={14} />
+                      {imagePreviewUrl ? "Change Photo" : "Upload Photo"}
                     </button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Recommended: Square image, max 5MB
+                    </p>
                   </div>
-                ) : (
-                  <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs text-center">
-                    No Image
-                  </div>
-                )}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  className="hidden"
-                  accept="image/*"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  {imagePreviewUrl ? "Change Photo" : "Upload Photo"}
-                </button>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+              {/* Form Fields - Responsive Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Name */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Position <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="position"
-                value={formData.position}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select a position</option>
-                {HOA_POSITIONS.map((position) => (
-                  <option key={position} value={position}>
-                    {position}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {/* Position */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Position <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="position"
+                    value={formData.position}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a position</option>
+                    {HOA_POSITIONS.map((position) => (
+                      <option key={position} value={position}>
+                        {position}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Contact Number
-              </label>
-              <input
-                type="text"
-                name="contactNo"
-                value={formData.contactNo}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                {/* Contact Number */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Contact Number
+                  </label>
+                  <input
+                    type="text"
+                    name="contactNo"
+                    value={formData.contactNo}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Email <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Address
-              </label>
-              <input
-                type="text"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter full address"
-              />
-            </div>
+                {/* Address */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Address
+                  </label>
+                  <input
+                    type="text"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter full address"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Term Duration
-              </label>
-              <input
-                type="text"
-                name="termDuration"
-                value={formData.termDuration}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                E.g., "2 years" or "until next election"
-              </p>
-            </div>
+                {/* Term Duration */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Term Duration
+                  </label>
+                  <input
+                    type="text"
+                    name="termDuration"
+                    value={formData.termDuration}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., 2 years or until next election"
+                  />
+                </div>
+              </div>
+            </form>
+          </div>
 
-            <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
+          {/* Footer */}
+          <div className="p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors order-2 sm:order-1"
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                onClick={handleSubmit}
                 disabled={isSaving || !!error}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors order-1 sm:order-2"
               >
                 {isSaving
                   ? "Saving..."
                   : isAddingNew
-                    ? "Add Official"
+                    ? "Add Officer"
                     : "Save Changes"}
               </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
 
@@ -912,7 +949,7 @@ const EditOfficialModal: React.FC<EditModalProps> = ({
   );
 };
 
-// *********** AddMemberModal ***********
+// *********** AddMemberModal - RESPONSIVE VERSION ***********
 const AddMemberModal: React.FC<AddMemberModalProps> = ({
   committeeName,
   onClose,
@@ -936,7 +973,6 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
     dateElected: "",
     termDuration: "",
     address: "",
-    photoURL: undefined as string | undefined,
   });
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1044,8 +1080,8 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setError(null);
   };
 
-  const handleImageUpload = async (): Promise<string | undefined> => {
-    if (!selectedFile) return undefined;
+  const handleImageUpload = async (): Promise<string | null> => {
+    if (!selectedFile) return null;
 
     const storageRef = ref(
       storage,
@@ -1061,7 +1097,7 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setIsAdding(true);
 
     const dataToAdd = formData;
-    let finalPayload: Partial<CommitteeMember> = dataToAdd;
+    let finalPayload: Partial<CommitteeMember> = { ...dataToAdd };
 
     try {
       if (!dataToAdd.name || !dataToAdd.position || !dataToAdd.email) {
@@ -1094,10 +1130,11 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
         return;
       }
 
+      // Handle photo upload properly
       if (selectedFile) {
         finalPayload.photoURL = await handleImageUpload();
       } else {
-        finalPayload.photoURL = undefined;
+        finalPayload.photoURL = null; // Explicitly set to null instead of undefined
       }
 
       await addDoc(collection(db, collectionPath), finalPayload);
@@ -1130,234 +1167,263 @@ const AddMemberModal: React.FC<AddMemberModalProps> = ({
   return (
     <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
-          <h2 className="text-xl font-bold mb-4">
-            Add Member to {formatCommitteeName(committeeName)}
-          </h2>
-          {error && (
-            <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">
-              {error}
-            </div>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Profile Photo
-              </label>
-              <div className="mt-1 flex items-center space-x-4">
-                {imagePreviewUrl ? (
-                  <div className="relative">
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Preview"
-                      className="w-20 h-20 rounded-full object-cover border border-gray-300"
+        <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="p-6 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-xl font-bold">
+              Add Member to {formatCommitteeName(committeeName)}
+            </h2>
+          </div>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {error && (
+              <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg border border-red-400">
+                {error}
+              </div>
+            )}
+            
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Photo Section */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Profile Photo
+                </label>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex-shrink-0">
+                    {imagePreviewUrl ? (
+                      <div className="relative">
+                        <img
+                          src={imagePreviewUrl}
+                          alt="Preview"
+                          className="w-20 h-20 rounded-full object-cover border border-gray-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleClearPhoto}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs hover:bg-red-600 transition-colors"
+                          aria-label="Clear photo"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs text-center">
+                        No Image
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      className="hidden"
+                      accept="image/*"
                     />
                     <button
                       type="button"
-                      onClick={handleClearPhoto}
-                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs hover:bg-red-600 transition-colors"
-                      aria-label="Clear photo"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
                     >
-                      <X size={14} />
+                      {selectedFile ? "Change Photo" : "Upload Photo"}
                     </button>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Recommended: Square image, max 5MB
+                    </p>
                   </div>
-                ) : (
-                  <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs text-center">
-                    No Image
-                  </div>
-                )}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  className="hidden"
-                  accept="image/*"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  {selectedFile ? "Change Photo" : "Upload Photo"}
-                </button>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+              {/* Form Fields - Responsive Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Name */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Position <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="position"
-                value={formData.position}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select a position</option>
-                {collectionPath === "board_of_directors" ? (
-                  <>
-                    <option
-                      value="Chairman of the Board"
-                      disabled={
-                        headExists &&
-                        formData.position !== "Chairman of the Board"
-                      }
-                    >
-                      Chairman of the Board
-                    </option>
-                    <option value="Vice Chairman of the Board">
-                      Vice Chairman of the Board
-                    </option>
-                    <option value="Board Member">Board Member</option>
-                  </>
-                ) : collectionPath === "committee_officers" ? (
-                  <>
-                    <option value="Auditing and Inventory Committee">
-                      Auditing and Inventory Committee
-                    </option>
-                    <option value="Financial Management Committee">
-                      Financial Management Committee
-                    </option>
-                    <option value="Membership and Education Committee">
-                      Membership and Education Committee
-                    </option>
-                    <option value="Peace and Order Committee">
-                      Peace and Order Committee
-                    </option>
-                    <option value="Environment Committee">
-                      Environment Committee
-                    </option>
-                    <option value="Election Committee">
-                      Election Committee
-                    </option>
-                  </>
-                ) : (
-                  <>
-                    <option
-                      value="Committee Head"
-                      disabled={
-                        headExists && formData.position !== "Committee Head"
-                      }
-                    >
-                      Committee Head
-                    </option>
-                    <option value="Member">Member</option>
-                    <option value="Secretary">Secretary</option>
-                    <option value="Treasurer">Treasurer</option>
-                  </>
-                )}
-              </select>
-              {headExists &&
-                (formData.position === "Chairman of the Board" ||
-                  formData.position === "Committee Head") && (
-                  <p className="text-xs text-red-500 mt-1">
-                    A {formData.position} already exists. Only one is allowed.
-                  </p>
-                )}
-            </div>
+                {/* Position */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Position <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="position"
+                    value={formData.position}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a position</option>
+                    {collectionPath === "board_of_directors" ? (
+                      <>
+                        <option
+                          value="Chairman of the Board"
+                          disabled={
+                            headExists &&
+                            formData.position !== "Chairman of the Board"
+                          }
+                        >
+                          Chairman of the Board
+                        </option>
+                        <option value="Vice Chairman of the Board">
+                          Vice Chairman of the Board
+                        </option>
+                        <option value="Board Member">Board Member</option>
+                      </>
+                    ) : collectionPath === "committee_officers" ? (
+                      <>
+                        <option value="Auditing and Inventory Committee">
+                          Auditing and Inventory Committee
+                        </option>
+                        <option value="Financial Management Committee">
+                          Financial Management Committee
+                        </option>
+                        <option value="Membership and Education Committee">
+                          Membership and Education Committee
+                        </option>
+                        <option value="Peace and Order Committee">
+                          Peace and Order Committee
+                        </option>
+                        <option value="Environment Committee">
+                          Environment Committee
+                        </option>
+                        <option value="Election Committee">
+                          Election Committee
+                        </option>
+                      </>
+                    ) : (
+                      <>
+                        <option
+                          value="Committee Head"
+                          disabled={
+                            headExists && formData.position !== "Committee Head"
+                          }
+                        >
+                          Committee Head
+                        </option>
+                        <option value="Member">Member</option>
+                        <option value="Secretary">Secretary</option>
+                        <option value="Treasurer">Treasurer</option>
+                      </>
+                    )}
+                  </select>
+                  {headExists &&
+                    (formData.position === "Chairman of the Board" ||
+                      formData.position === "Committee Head") && (
+                      <p className="text-xs text-red-500 mt-1">
+                        A {formData.position} already exists. Only one is allowed.
+                      </p>
+                    )}
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Contact Number
-              </label>
-              <input
-                type="text"
-                name="contactNo"
-                value={formData.contactNo}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                {/* Contact Number */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Contact Number
+                  </label>
+                  <input
+                    type="text"
+                    name="contactNo"
+                    value={formData.contactNo}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Email <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Address
-              </label>
-              <input
-                type="text"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter full address"
-              />
-            </div>
+                {/* Address */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Address
+                  </label>
+                  <input
+                    type="text"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter full address"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Date Elected
-              </label>
-              <input
-                type="date"
-                name="dateElected"
-                value={formData.dateElected}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+                {/* Date Elected */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Date Elected
+                  </label>
+                  <input
+                    type="date"
+                    name="dateElected"
+                    value={formData.dateElected}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Term Duration
-              </label>
-              <input
-                type="text"
-                name="termDuration"
-                value={formData.termDuration}
-                onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                E.g., "2 years" or "until next election"
-              </p>
-            </div>
+                {/* Term Duration */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Term Duration
+                  </label>
+                  <input
+                    type="text"
+                    name="termDuration"
+                    value={formData.termDuration}
+                    onChange={handleChange}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., 2 years"
+                  />
+                </div>
+              </div>
+            </form>
+          </div>
 
-            <div className="flex justify-end space-x-2 pt-4 border-t mt-6">
+          {/* Footer */}
+          <div className="p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors order-2 sm:order-1"
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                onClick={handleSubmit}
                 disabled={isAdding || !!error}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors order-1 sm:order-2"
               >
-                {isAdding ? "Adding..." : "Add Member"}
+                {isAdding ? "Adding..." : "Add Officer"}
               </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
 
@@ -1449,8 +1515,8 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({
     setError(null);
   };
 
-  const handleImageUpload = async (): Promise<string | undefined> => {
-    if (!selectedFile) return imagePreviewUrl || undefined;
+  const handleImageUpload = async (): Promise<string | null> => {
+    if (!selectedFile) return null;
 
     const storageRef = ref(
       storage,
@@ -1466,7 +1532,7 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({
     setError(null);
 
     const dataToUpdate = formData;
-    let finalPayload: Partial<CommitteeMember> = dataToUpdate;
+    let finalPayload: Partial<CommitteeMember> = { ...dataToUpdate };
 
     try {
       const newPhotoURL = await handleImageUpload();
@@ -1477,7 +1543,13 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({
           await deleteOldPhoto(member.photoURL);
         } else if (!newPhotoURL && member.photoURL) {
           await deleteOldPhoto(member.photoURL);
+          finalPayload.photoURL = null;
         }
+      }
+
+      // Ensure photoURL is never undefined
+      if (finalPayload.photoURL === undefined) {
+        finalPayload.photoURL = null;
       }
 
       const memberRef = doc(db, collectionPath, member.id);
@@ -1495,7 +1567,7 @@ const EditCommitteeMemberModal: React.FC<EditCommitteeMemberModalProps> = ({
   return (
     <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
+        <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md mx-4">
           <h2 className="text-xl font-bold mb-4">
             Edit Committee Member: {member.name}
           </h2>
@@ -1852,7 +1924,7 @@ const CommitteeContent: React.FC<CommitteeContentProps> = ({
           onClick={() => setIsAddModalOpen(true)}
           className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-md"
         >
-          <Plus className="w-4 h-4 mr-1" /> Add Member
+          <Plus className="w-4 h-4 mr-1" /> Add Officer
         </button>
       </div>
 
@@ -2015,13 +2087,13 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-gray-800">
-          Executive Board Members
+          Executive Officers
         </h2>
         <button
           onClick={handleAddNewOfficial}
           className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-md"
         >
-          <Plus className="w-4 h-4 mr-1" /> Add Board Member
+          <Plus className="w-4 h-4 mr-1" /> Add Officer
         </button>
       </div>
 
@@ -2168,7 +2240,7 @@ const HOABoardContent: React.FC<HOABoardContentProps> = ({
   );
 };
 
-// *********** TabContent ***********
+// *********** TabContent - MISSING COMPONENT ADDED ***********
 const COMMITTEE_COLLECTIONS: Record<string, string> = {
   "Board of Directors": "board_of_directors",
   "Committee officers": "committee_officers",
@@ -2364,10 +2436,10 @@ export default function OffHoa() {
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* UPDATED HEADER - Same as Dashboard */}
-      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-4 sm:px-6 flex justify-between items-center flex-shrink-0">
         {/* Page Title - Left Side */}
-        <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+        <div className="flex items-center space-x-2 sm:space-x-4">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel">
             HOA Officials
           </h1>
         </div>
@@ -2376,40 +2448,35 @@ export default function OffHoa() {
         <div className="flex-1"></div>
 
         {/* Profile/User Icon on the Right */}
-        <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                        <ShareIcon className="h-5 w-5" /> 
-                    </button> */}
-
-          {/* ADMIN BUTTON: Navigation Handler */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
           >
-            <UserCircleIcon className="h-8 w-8 text-white" />
+            <UserCircleIcon className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
             <span className="text-sm font-medium hidden sm:inline">Admin</span>
           </div>
         </div>
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-auto p-6">
-        <div className="space-y-6">
-          {/* Tabs Section */}
-          <div className="bg-object rounded-xl shadow-sm p-1 mb-6 border border-gray-200">
-            <nav className="flex">
+      <main className="flex-1 overflow-auto p-4 sm:p-6">
+        <div className="space-y-4 sm:space-y-6">
+          {/* Tabs Section - Responsive */}
+          <div className="bg-object rounded-xl shadow-sm p-1 mb-4 sm:mb-6 border border-gray-200 overflow-x-auto">
+            <nav className="flex min-w-max">
               {tabs.map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`
-                                        flex-1 py-3 px-4 text-center font-medium text-sm transition-all duration-200 rounded-lg mx-1
-                                        ${
-                                          activeTab === tab
-                                            ? "bg-[#007963] text-white shadow-md"
-                                            : "text-white hover:text-[#007963] hover:bg-yel"
-                                        }
-                                    `}
+                    flex-1 py-2 sm:py-3 px-3 sm:px-4 text-center font-medium text-xs sm:text-sm transition-all duration-200 rounded-lg mx-1 min-w-[120px] sm:min-w-0
+                    ${
+                      activeTab === tab
+                        ? "bg-[#007963] text-white shadow-md"
+                        : "text-white hover:text-[#007963] hover:bg-yel"
+                    }
+                  `}
                 >
                   {tab}
                 </button>
@@ -2418,7 +2485,7 @@ export default function OffHoa() {
           </div>
 
           {/* Content Area */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6">
             <TabContent
               tab={activeTab}
               officials={officials}

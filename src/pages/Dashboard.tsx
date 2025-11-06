@@ -24,6 +24,7 @@ import {
   query,
   where,
   Timestamp,
+  orderBy,
 } from "firebase/firestore";
 import TrafficChartWidget from "../components/TrafficChartWidget";
 
@@ -36,6 +37,14 @@ interface EventType {
   description?: string;
 }
 
+interface FinancialTransaction {
+  id: string;
+  amount: number;
+  transactionDate: Date;
+  type: 'contribution' | 'expense';
+  monthYear?: string;
+}
+
 // -------------------------------------------------------------------
 // --- HELPER FUNCTIONS ---
 // -------------------------------------------------------------------
@@ -46,6 +55,11 @@ const generateYearOptions = (startYear: number, endYear: number) => {
     years.push(year);
   }
   return years;
+};
+
+// Helper to get month key for grouping
+const getMonthKey = (date: Date): string => {
+  return date.toLocaleString('default', { month: 'short' }).toUpperCase();
 };
 
 // -------------------------------------------------------------------
@@ -72,11 +86,11 @@ function MemberStatBlock({
     label: string;
     value: number;
   }) => (
-    <div className="flex flex-col items-center justify-center p-3 sm:p-4 w-1/4">
-      <h3 className="text-sm font-medium text-gray-500 whitespace-nowrap">
+    <div className="flex flex-col items-center justify-center p-2 sm:p-3 md:p-4 w-1/4">
+      <h3 className="text-xs sm:text-sm font-medium text-gray-500 whitespace-nowrap break-words text-center">
         {label}
       </h3>
-      <p className="text-xl sm:text-2xl mt-1 text-gray-800 font-bold">
+      <p className="text-lg sm:text-xl md:text-2xl mt-1 text-gray-800 font-bold break-words">
         {value.toLocaleString()}
       </p>
     </div>
@@ -108,8 +122,12 @@ function StatBox({
     <div
       className={`flex-1 min-w-[250px] bg-white p-3 border-b-4 ${borderColor} rounded shadow-sm text-center`}
     >
-      <h2 className="text-sm font-medium text-gray-500">{label}</h2>
-      <p className={`text-2xl mt-1 ${valueColor} font-bold`}>{value}</p>
+      <h2 className="text-xs sm:text-sm font-medium text-gray-500 break-words px-1">
+        {label}
+      </h2>
+      <p className={`text-lg sm:text-xl md:text-2xl mt-1 ${valueColor} font-bold break-words`}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -125,19 +143,31 @@ function FinancialOverview({
   setSelectedYear: React.Dispatch<React.SetStateAction<number>>;
   yearOptions: number[];
 }) {
+  // Calculate max value for proper Y-axis scaling
+  const maxValue = useMemo(() => {
+    if (data.length === 0) return 1000;
+    const allValues = data.flatMap(item => [
+      item.Collections || 0, 
+      item.Expenses || 0
+    ]);
+    const max = Math.max(...allValues);
+    // Round up to nearest 500 for better scaling
+    return Math.ceil(max / 500) * 500 || 1000;
+  }, [data]);
+
   return (
-    <div className="bg-white p-6 rounded shadow-md w-full">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold text-gray-800">
+    <div className="bg-white p-4 sm:p-6 rounded shadow-md w-full">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
+        <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
           Financial Overview ({selectedYear} Collections & Expenses)
         </h2>
         <div className="flex items-center gap-2">
-          <label htmlFor="year-select" className="text-sm text-gray-600">
+          <label htmlFor="year-select" className="text-xs sm:text-sm text-gray-600">
             Year:
           </label>
           <select
             id="year-select"
-            className="text-gray-700 bg-white border border-gray-300 rounded-md py-1 px-2 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#007963] text-sm font-semibold"
+            className="text-gray-700 bg-white border border-gray-300 rounded-md py-1 px-2 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#007963] text-xs sm:text-sm font-semibold"
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
           >
@@ -155,17 +185,18 @@ function FinancialOverview({
             <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
             <XAxis dataKey="month" tickLine={false} axisLine={false} />
             <YAxis
-              tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
+              tickFormatter={(value) => `₱${value.toLocaleString()}`}
               tickLine={false}
               axisLine={false}
-              domain={[0, "auto"]}
-              tickCount={5}
+              domain={[0, maxValue]}
+              tickCount={6}
             />
             <Tooltip
               formatter={(value: any) => [
                 `₱${value.toLocaleString()}`,
                 "Amount",
               ]}
+              labelFormatter={(label) => `Month: ${label}`}
             />
             <Legend
               wrapperStyle={{ paddingTop: 20 }}
@@ -189,7 +220,7 @@ function FinancialOverview({
           </LineChart>
         </ResponsiveContainer>
       ) : (
-        <p className="text-gray-500 text-center py-10">
+        <p className="text-gray-500 text-center py-8 sm:py-10 text-sm sm:text-base">
           No financial data available for {selectedYear}.
         </p>
       )}
@@ -218,7 +249,7 @@ function InfoCard({
   } else if (isViewMore) {
     actualFooterContent = (
       <button
-        className="text-sm font-semibold text-[#007963] hover:text-[#005a4a]"
+        className="text-xs sm:text-sm font-semibold text-[#007963] hover:text-[#005a4a]"
         onClick={onViewMoreClick}
       >
         View More
@@ -226,18 +257,18 @@ function InfoCard({
     );
   } else {
     actualFooterContent = (
-      <span className="text-sm font-semibold text-gray-500">{footer}</span>
+      <span className="text-xs sm:text-sm font-semibold text-gray-500">{footer}</span>
     );
   }
 
   return (
-    <div className="bg-white rounded shadow-md flex flex-col h-full min-h-[250px]">
-      <div className="p-4 bg-object rounded-t border-b border-gray-600">
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+    <div className="bg-white rounded shadow-md flex flex-col h-full min-h-[200px]">
+      <div className="p-3 sm:p-4 bg-object rounded-t border-b border-gray-600">
+        <h2 className="text-sm sm:text-base font-semibold text-white">{title}</h2>
       </div>
-      <div className="flex-1 px-4 py-2">{children}</div>
+      <div className="flex-1 px-2 sm:px-3 py-2 overflow-hidden">{children}</div>
       <div
-        className={`p-3 border-t border-gray-100 ${footerContent ? "bg-white" : isViewMore ? "bg-gray-50" : "bg-white"} flex justify-center items-center`}
+        className={`p-2 sm:p-3 border-t border-gray-100 ${footerContent ? "bg-white" : isViewMore ? "bg-gray-50" : "bg-white"} flex justify-center items-center`}
       >
         {actualFooterContent}
       </div>
@@ -325,11 +356,11 @@ function FullyPaidMembersCard({
   };
 
   const FooterContent = (
-    <div className="flex justify-between items-center px-2 w-full text-sm font-semibold">
-      <div className="flex items-center gap-1 text-gray-500">
+    <div className="flex flex-col xs:flex-row justify-between items-center px-1 w-full text-xs font-semibold gap-1 xs:gap-0">
+      <div className="flex items-center gap-1 text-gray-500 whitespace-nowrap">
         Month:
         <select
-          className="text-gray-700 bg-white border border-gray-300 rounded-md py-1 px-2 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#007963]"
+          className="text-gray-700 bg-white border border-gray-300 rounded-md py-0.5 px-1 text-xs appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#007963]"
           value={currentMonthValue}
           onChange={(e) => setCurrentMonthValue(e.target.value)}
         >
@@ -341,7 +372,7 @@ function FullyPaidMembersCard({
         </select>
       </div>
       <button
-        className="text-[#007963] hover:text-[#005a4a]"
+        className="text-[#007963] hover:text-[#005a4a] text-xs whitespace-nowrap"
         onClick={onViewMoreClick}
       >
         View More
@@ -351,19 +382,21 @@ function FullyPaidMembersCard({
 
   return (
     <InfoCard title="Fully Paid Members" footerContent={FooterContent}>
-      <div className="text-center my-6 h-60 flex flex-col justify-center">
+      <div className="text-center my-2 h-32 flex flex-col justify-center overflow-hidden">
         {isLoading ? (
-          <div className="text-3xl text-gray-500 font-semibold flex justify-center">
-            <ArrowPathIcon className="h-8 w-8 animate-spin text-gray-400" />
+          <div className="text-lg text-gray-500 font-semibold flex justify-center">
+            <ArrowPathIcon className="h-5 w-5 animate-spin text-gray-400" />
           </div>
         ) : (
-          <div className="text-8xl font-bold text-gray-800 mb-2">
-            {fullyPaidMembers}
-          </div>
+          <>
+            <div className="sm:text-2xl md:text-3xl lg:text-4xl xl:text-7xl 2xl:text-8xl font-bold text-gray-800 mb-0.5 break-words">
+              {fullyPaidMembers}
+            </div>
+            <p className="text-xs md:text-base lg:text-xs xl:text-sm 2xl:text-xl text-gray-500 px-0.5 break-words leading-tight">
+               Total paid for {getShortMonthLabel(currentMonthValue)}
+            </p>
+          </>
         )}
-        <p className="text-lg text-gray-500">
-          Members paid for {getShortMonthLabel(currentMonthValue)}
-        </p>
       </div>
     </InfoCard>
   );
@@ -389,9 +422,10 @@ function Dashboard({
   const today = new Date();
   const currentYear = today.getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
+  
   const YEAR_OPTIONS = useMemo(
-    () => generateYearOptions(2020, currentYear),
-    [currentYear]
+    () => generateYearOptions(2020, 2050),
+    []
   );
 
   const [events, setEvents] = useState<EventType[]>([]);
@@ -402,7 +436,6 @@ function Dashboard({
   const [newMembers, setNewMembers] = useState(0);
 
   const [hoaBalance, setHoaBalance] = useState<number | null>(null);
-
   const [financialData, setFinancialData] = useState<any[]>([]);
   const [newComplaints, setNewComplaints] = useState(0);
   const [totalComplaints, setTotalComplaints] = useState(0);
@@ -422,45 +455,175 @@ function Dashboard({
   const contributionsCollectionPath = "contributions";
   const expensesCollectionPath = "expenses";
 
-  // --- Data Fetching Callbacks ---
+  // --- CALCULATE HOA BALANCE ---
   const calculateHOABalance = useCallback(async () => {
     if (!db) return;
-    const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
-    const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1));
-
+    
     try {
+      const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
+      const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1));
+
+      // Fetch contributions for the selected year
       const contributionsQuery = query(
         collection(db, contributionsCollectionPath),
         where("transactionDate", ">=", startOfYear),
         where("transactionDate", "<", endOfYear)
       );
-      const contributionsSnapshot = await getDocs(contributionsQuery);
-      let totalCollections = 0;
-      contributionsSnapshot.forEach((doc) => {
-        totalCollections += Number(doc.data().amount) || 0;
-      });
-
+      
+      // Fetch expenses for the selected year
       const expensesQuery = query(
         collection(db, expensesCollectionPath),
         where("transactionDate", ">=", startOfYear),
         where("transactionDate", "<", endOfYear)
       );
-      const expensesSnapshot = await getDocs(expensesQuery);
+
+      const [contributionsSnap, expensesSnap] = await Promise.all([
+        getDocs(contributionsQuery),
+        getDocs(expensesQuery)
+      ]);
+
+      let totalCollections = 0;
       let totalExpenses = 0;
-      expensesSnapshot.forEach((doc) => {
-        totalExpenses += Number(doc.data().amount) || 0;
+
+      // Process collections
+      contributionsSnap.forEach((doc) => {
+        const data = doc.data();
+        const timestampField = data.transactionDate || data.timestamp;
+        if (!timestampField || !data.amount) return;
+        
+        const date = timestampField instanceof Timestamp 
+          ? timestampField.toDate() 
+          : new Date(timestampField.seconds * 1000);
+        
+        if (date.getFullYear() === selectedYear) {
+          totalCollections += Number(data.amount) || 0;
+        }
+      });
+
+      // Process expenses
+      expensesSnap.forEach((doc) => {
+        const data = doc.data();
+        const timestampField = data.transactionDate;
+        if (!timestampField || !data.amount) return;
+        
+        const date = timestampField instanceof Timestamp 
+          ? timestampField.toDate() 
+          : new Date(timestampField.seconds * 1000);
+        
+        if (date.getFullYear() === selectedYear) {
+          totalExpenses += Number(data.amount) || 0;
+        }
       });
 
       setHoaBalance(totalCollections - totalExpenses);
     } catch (error) {
-      console.error(
-        `Error calculating Net Balance for ${selectedYear}:`,
-        error
-      );
+      console.error(`Error calculating Net Balance for ${selectedYear}:`, error);
       setHoaBalance(null);
     }
   }, [selectedYear]);
 
+  // --- ACCURATE FINANCIAL CALCULATIONS ---
+  
+  // Improved financial data fetching with proper month-by-month calculation
+  const fetchFinanceOverview = useCallback(async () => {
+    if (!db) return;
+    
+    try {
+      const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
+      const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1));
+
+      // Fetch contributions for the selected year
+      const collectionsQuery = query(
+        collection(db, contributionsCollectionPath),
+        where("transactionDate", ">=", startOfYear),
+        where("transactionDate", "<", endOfYear)
+      );
+      
+      // Fetch expenses for the selected year
+      const expensesQuery = query(
+        collection(db, expensesCollectionPath),
+        where("transactionDate", ">=", startOfYear),
+        where("transactionDate", "<", endOfYear)
+      );
+
+      const [collectionsSnap, expensesSnap] = await Promise.all([
+        getDocs(collectionsQuery),
+        getDocs(expensesQuery)
+      ]);
+
+      // Initialize monthly data structure
+      const monthAbbreviations = [
+        "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"
+      ];
+      
+      const monthlyData: Record<string, { 
+        collections: number; 
+        expenses: number;
+      }> = {};
+      
+      monthAbbreviations.forEach(month => {
+        monthlyData[month] = { 
+          collections: 0, 
+          expenses: 0
+        };
+      });
+
+      // Process collections
+      collectionsSnap.forEach((doc) => {
+        const data = doc.data();
+        const timestampField = data.transactionDate || data.timestamp;
+        if (!timestampField || !data.amount) return;
+        
+        const date = timestampField instanceof Timestamp 
+          ? timestampField.toDate() 
+          : new Date(timestampField.seconds * 1000);
+        
+        if (date.getFullYear() === selectedYear) {
+          const month = getMonthKey(date);
+          if (monthlyData[month]) {
+            monthlyData[month].collections += Number(data.amount) || 0;
+          }
+        }
+      });
+
+      // Process expenses
+      expensesSnap.forEach((doc) => {
+        const data = doc.data();
+        const timestampField = data.transactionDate;
+        if (!timestampField || !data.amount) return;
+        
+        const date = timestampField instanceof Timestamp 
+          ? timestampField.toDate() 
+          : new Date(timestampField.seconds * 1000);
+        
+        if (date.getFullYear() === selectedYear) {
+          const month = getMonthKey(date);
+          if (monthlyData[month]) {
+            monthlyData[month].expenses += Number(data.amount) || 0;
+          }
+        }
+      });
+
+      // Format data for chart
+      const formattedData = monthAbbreviations.map(month => {
+        const monthData = monthlyData[month];
+        
+        return {
+          month,
+          Collections: monthData.collections,
+          Expenses: monthData.expenses
+        };
+      });
+
+      setFinancialData(formattedData);
+    } catch (err) {
+      console.error("Error loading financial data:", err);
+      setFinancialData([]);
+    }
+  }, [selectedYear]);
+
+  // --- OTHER DATA FETCHING FUNCTIONS ---
   const fetchComplaintsData = useCallback(async () => {
     if (!db) return;
     try {
@@ -471,6 +634,7 @@ function Dashboard({
         )
       );
       setNewComplaints(newComplaintsSnapshot.size);
+      
       const allComplaintsSnapshot = await getDocs(
         collection(db, complaintsCollectionPath)
       );
@@ -566,96 +730,6 @@ function Dashboard({
     }
   }, []);
 
-  const fetchFinanceOverview = useCallback(async () => {
-    if (!db) return;
-    try {
-      const startOfYear = Timestamp.fromDate(new Date(selectedYear, 0, 1));
-      const endOfYear = Timestamp.fromDate(new Date(selectedYear + 1, 0, 1));
-      const collectionsSnap = await getDocs(
-        query(
-          collection(db, contributionsCollectionPath),
-          where("transactionDate", ">=", startOfYear),
-          where("transactionDate", "<", endOfYear)
-        )
-      );
-      const expensesSnap = await getDocs(
-        query(
-          collection(db, expensesCollectionPath),
-          where("transactionDate", ">=", startOfYear),
-          where("transactionDate", "<", endOfYear)
-        )
-      );
-
-      const monthAbbreviations = [
-        "JAN",
-        "FEB",
-        "MAR",
-        "APR",
-        "MAY",
-        "JUN",
-        "JUL",
-        "AUG",
-        "SEP",
-        "OCT",
-        "NOV",
-        "DEC",
-      ];
-      const monthlyMap: Record<
-        string,
-        { collections: number; expenses: number }
-      > = {};
-      monthAbbreviations.forEach((month) => {
-        monthlyMap[month] = { collections: 0, expenses: 0 };
-      });
-
-      collectionsSnap.forEach((doc) => {
-        const data = doc.data();
-        const timestampField = data.transactionDate || data.timestamp;
-        if (!timestampField || !data.amount) return;
-        const date =
-          timestampField instanceof Timestamp
-            ? timestampField.toDate()
-            : new Date(timestampField.seconds * 1000);
-        if (date.getFullYear() === selectedYear) {
-          const month = date
-            .toLocaleString("default", { month: "short" })
-            .toUpperCase();
-          if (monthlyMap[month]) {
-            monthlyMap[month].collections += Number(data.amount) || 0;
-          }
-        }
-      });
-
-      expensesSnap.forEach((doc) => {
-        const data = doc.data();
-        const timestampField = data.transactionDate;
-        if (!timestampField || !data.amount) return;
-        const date =
-          timestampField instanceof Timestamp
-            ? timestampField.toDate()
-            : new Date(timestampField.seconds * 1000);
-        if (date.getFullYear() === selectedYear) {
-          const month = date
-            .toLocaleString("default", { month: "short" })
-            .toUpperCase();
-          if (monthlyMap[month]) {
-            monthlyMap[month].expenses += Number(data.amount) || 0;
-          }
-        }
-      });
-
-      setFinancialData(
-        monthAbbreviations.map((month) => ({
-          month,
-          Collections: monthlyMap[month].collections,
-          Expenses: monthlyMap[month].expenses,
-        }))
-      );
-    } catch (err) {
-      console.error("Error loading financial data:", err);
-    }
-  }, [selectedYear]);
-
   // --- EFFECT HOOKS ---
   useEffect(() => {
     fetchEvents();
@@ -671,10 +745,10 @@ function Dashboard({
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* TOP HEADER - Dashboard Header (SAME AS CALENDAR) */}
-      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
+      <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-4 sm:px-6 flex justify-between items-center flex-shrink-0">
         {/* Dashboard Title - Left Side */}
         <div className="flex items-center space-x-4">
-          <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
+          <h1 className="text-sm font-Montserrat font-extrabold text-yel">
             Dashboard
           </h1>
         </div>
@@ -684,42 +758,38 @@ function Dashboard({
 
         {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                        <ShareIcon className="h-5 w-5" /> 
-                    </button> */}
-
           {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
           >
-            <UserCircleIcon className="h-8 w-8 text-white" />
-            <span className="text-sm font-medium hidden sm:inline">Admin</span>
+            <UserCircleIcon className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+            <span className="text-xs sm:text-sm font-medium hidden sm:inline">Admin</span>
           </div>
         </div>
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="space-y-6">
           {/* Welcome Panel */}
-          <div className="flex justify-between items-start mb-6 flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">
+          <div className="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4">
+            <div className="flex-1">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 break-words">
                 Welcome back, {adminUsername}
               </h1>
-              <p className="text-base text-gray-500 mt-1">
+              <p className="text-xs sm:text-sm lg:text-base text-gray-500 mt-1 break-words">
                 See the overview and activities of the HOA
               </p>
             </div>
-            <div className="w-[180px] bg-white p-4 text-center rounded shadow-md flex-shrink-0">
-              <p className="text-2xl font-bold text-gray-800">
+            <div className="w-full sm:w-[160px] lg:w-[180px] bg-white p-3 text-center rounded shadow-md flex-shrink-0">
+              <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">
                 {new Date().toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
               </p>
-              <p className="text-base text-gray-500">
+              <p className="text-xs sm:text-sm text-gray-500">
                 {new Date().toLocaleDateString("en-US", {
                   year: "numeric",
                   month: "long",
@@ -729,11 +799,11 @@ function Dashboard({
             </div>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
             {/* Left Column: Stats and Charts */}
-            <div className="flex-1 space-y-6">
+            <div className="flex-1 space-y-4 sm:space-y-6">
               {/* Stat Boxes: Member Stats and Balance Stat */}
-              <div className="flex flex-wrap gap-4 border-b border-gray-200 pb-4">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 border-b border-gray-200 pb-4">
                 <MemberStatBlock
                   current={currentMembersCount}
                   active={activeMembers}
@@ -742,6 +812,7 @@ function Dashboard({
                   rawTotal={rawTotalMembers}
                 />
 
+                {/* TOTAL NET HOA BALANCE STATBOX */}
                 <StatBox
                   label={`Total Net ${selectedYear} (HOA Balance)`}
                   value={
@@ -762,33 +833,35 @@ function Dashboard({
               />
 
               {/* Bottom Section (Small Cards) - NOW 3 COLUMNS */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {/* 1. ACTUAL TRAFFIC WIDGET */}
                 <TrafficChartWidget />
 
-                {/* 2. COMPLAINTS CARD */}
+                {/* 2. COMPLAINTS CARD - FIXED RESPONSIVE TEXT */}
                 <InfoCard
                   title="Complaints"
                   footer="View More"
                   onViewMoreClick={onViewComplaintsClick}
                 >
-                  <div className="flex justify-around items-center h-40">
-                    <div className="text-center">
-                      <div className="text-8xl font-bold text-gray-800 mb-1">
+                  <div className="flex flex-col sm:flex-row justify-around items-center h-32 gap-1 sm:gap-0">
+                    <div className="text-center flex-1">
+                      <div className="sm:text-2xl md:text-3xl lg:text-4xl xl:text-7xl 2xl:text-8xl font-bold text-gray-800 mb-0.5 break-words">
                         {newComplaints}
                       </div>
-                      <p className="text-lg text-gray-500">New Complaints</p>
+                      <p className="text-xs md:text-base lg:text-xs xl:text-sm 2xl:text-xl text-gray-500 px-0.5 break-words leading-tight">
+                        New Complaints
+                      </p>
                     </div>
-                    <div className="text-center">
-                      <div className="text-8xl font-bold text-gray-800 mb-1">
+                    <div className="text-center flex-1">
+                      <div className="sm:text-2xl md:text-3xl lg:text-4xl xl:text-7xl 2xl:text-8xl font-bold text-gray-800 mb-0.5 break-words">
                         {totalComplaints}
                       </div>
-                      <p className="text-lg text-gray-500">Total Complaints</p>
+                      <p className="text-xs md:text-2xl lg:text-xs xl:text-sm 2xl:text-xl text-gray-500 px-0.5 break-words leading-tight">
+                        Total Complaints
+                      </p>
                     </div>
                   </div>
                 </InfoCard>
-
-                {/* TANGGAL NA ANG ONGOING PROJECTS CARD DITO */}
 
                 {/* 3. FULLY PAID MEMBERS CARD */}
                 <FullyPaidMembersCard
@@ -798,17 +871,17 @@ function Dashboard({
             </div>
 
             {/* Right Column: Upcoming Events */}
-            <div className="w-full lg:w-[350px] bg-white rounded shadow-md flex flex-col flex-shrink-0">
-              <div className="p-4 bg-object rounded-t border-b border-gray-600">
-                <h2 className="text-lg font-semibold text-white">
+            <div className="w-full lg:w-[320px] xl:w-[350px] bg-white rounded shadow-md flex flex-col flex-shrink-0">
+              <div className="p-3 sm:p-4 bg-object rounded-t border-b border-gray-600">
+                <h2 className="text-sm sm:text-base font-semibold text-white">
                   Upcoming Events
                 </h2>
-                <div className="text-sm text-white mt-1">
+                <div className="text-xs sm:text-sm text-white mt-1">
                   Total {events.length} Upcoming Events
                 </div>
               </div>
 
-              <div className="p-4 max-h-[700px] overflow-y-auto flex-grow">
+              <div className="p-2 sm:p-3 max-h-[400px] sm:max-h-[500px] lg:max-h-[600px] overflow-y-auto flex-grow">
                 {events.length > 0 ? (
                   events.map((event, index) => {
                     if (!event.start) return null;
@@ -826,38 +899,38 @@ function Dashboard({
                     return (
                       <div
                         key={index}
-                        className="flex gap-4 py-3 border-b border-gray-200 last:border-b-0"
+                        className="flex gap-2 sm:gap-3 py-2 border-b border-gray-200 last:border-b-0"
                       >
-                        <div className="bg-[#007963] text-white text-center p-1 rounded font-bold w-16 h-16 flex flex-col justify-center items-center flex-shrink-0">
+                        <div className="bg-[#007963] text-white text-center p-1 rounded font-bold w-10 h-10 sm:w-12 sm:h-12 flex flex-col justify-center items-center flex-shrink-0">
                           <span className="text-xs leading-none">
                             {month.toUpperCase()}
                           </span>
-                          <span className="text-2xl leading-none">{day}</span>
+                          <span className="text-base sm:text-lg leading-none">{day}</span>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-800 text-base">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-800 text-xs sm:text-sm break-words">
                             {event.title}
                           </h3>
                           {event.description && (
-                            <p className="text-sm text-gray-600 mt-0.5 truncate max-w-full">
+                            <p className="text-xs text-gray-600 mt-0.5 truncate max-w-full">
                               {event.description}
                             </p>
                           )}
-                          <p className="text-xs text-gray-500 mt-0.5">{`${eventDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} | ${start}`}</p>
+                          <p className="text-xs text-gray-500 mt-0.5 break-words">{`${eventDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} | ${start}`}</p>
                         </div>
                       </div>
                     );
                   })
                 ) : (
-                  <div className="text-center text-gray-500 py-10">
-                    <p>No upcoming events.</p>
+                  <div className="text-center text-gray-500 py-6 sm:py-8">
+                    <p className="text-xs sm:text-sm">No upcoming events.</p>
                   </div>
                 )}
               </div>
 
-              <div className="p-4 border-t border-gray-200 bg-white text-center">
+              <div className="p-2 sm:p-3 border-t border-gray-200 bg-white text-center">
                 <button
-                  className="bg-[#007963] text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md hover:bg-[#005a4a]"
+                  className="bg-[#007963] text-white px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold shadow-md hover:bg-[#005a4a] w-full sm:w-auto"
                   onClick={onViewEventsClick}
                 >
                   View Events
