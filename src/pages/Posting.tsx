@@ -30,6 +30,7 @@ import {
   ShareIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { useNavigate } from "react-router-dom";
 
@@ -228,6 +229,9 @@ export default function App() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(
     null
   );
+
+  // 🌟 NEW: COMMENT DELETE STATE 🌟
+  const [commentToDelete, setCommentToDelete] = useState<{postId: string, commentId: string} | null>(null);
 
   // 🌟 USER REACTIONS STATE 🌟
   const [userReactions, setUserReactions] = useState<Record<string, boolean>>(
@@ -541,6 +545,37 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // 🌟 FIXED: SIMPLIFIED Real-time comments count - Only update when posts change
+  useEffect(() => {
+    if (posts.length === 0) return;
+
+    // Refresh comments count for all posts
+    const refreshCommentsCount = async () => {
+      const updatedPosts = await Promise.all(
+        posts.map(async (post) => {
+          if (!post.id) return post;
+          
+          try {
+            const commentsSnapshot = await getDocs(
+              collection(db, "posts", post.id, "comments")
+            );
+            return {
+              ...post,
+              commentsCount: commentsSnapshot.size
+            };
+          } catch (error) {
+            console.error(`Error fetching comments count for post ${post.id}:`, error);
+            return post;
+          }
+        })
+      );
+
+      setPosts(updatedPosts);
+    };
+
+    refreshCommentsCount();
+  }, [posts.length]); // Only refresh when number of posts changes
+
   useEffect(() => {
     if (!selectedReactPostId || !user) return;
 
@@ -595,7 +630,7 @@ export default function App() {
     return () => unsubscribe();
   };
 
-  // 🌟 UPDATED: handleAddComment without syncUserProfile 🌟
+  // 🌟 FIXED: IMPROVED handleAddComment - PROPER COMMENTS COUNTING 🌟
   const handleAddComment = async (postId: string) => {
     if (!newComment.trim()) return;
     if (!user) {
@@ -604,27 +639,67 @@ export default function App() {
     }
     try {
       const postRef = doc(db, "posts", postId);
-      await runTransaction(db, async (transaction) => {
-        const authorInfo = await getAuthorLabel(
-          user.uid,
-          user.displayName || "HOA Official"
-        );
-        await addDoc(collection(db, "posts", postId, "comments"), {
-          userId: user.uid,
-          authorName: authorInfo.name,
-          content: newComment,
-          photoURL: authorInfo.photoURL,
-          createdAt: serverTimestamp(),
-        });
-        transaction.update(postRef, {
-          commentsCount: increment(1),
-        });
+      const authorInfo = await getAuthorLabel(
+        user.uid,
+        user.displayName || "HOA Official"
+      );
+      
+      // Add the comment first
+      await addDoc(collection(db, "posts", postId, "comments"), {
+        userId: user.uid,
+        authorName: authorInfo.name,
+        content: newComment,
+        photoURL: authorInfo.photoURL,
+        createdAt: serverTimestamp(),
       });
+
+      // 🌟 FIXED: Get current comments count and update properly
+      const commentsSnapshot = await getDocs(collection(db, "posts", postId, "comments"));
+      const currentCommentsCount = commentsSnapshot.size;
+      
+      // Update the post with the accurate comments count
+      await updateDoc(postRef, {
+        commentsCount: currentCommentsCount,
+        updatedAt: serverTimestamp(),
+      });
+
       setNewComment("");
       showNotification("Comment added successfully!", "success");
     } catch (err) {
       console.error("Error commenting:", err);
       showNotification("Failed to add comment. Please try again.", "error");
+    }
+  };
+
+  // 🌟 FIXED: IMPROVED DELETE COMMENT FUNCTION - PROPER COUNTING 🌟
+  const handleDeleteComment = async (postId: string, commentId: string) => {
+    if (!user || !isAdmin) {
+      showNotification("Only admins can delete comments.", "error");
+      return;
+    }
+
+    try {
+      const postRef = doc(db, "posts", postId);
+      const commentRef = doc(db, "posts", postId, "comments", commentId);
+
+      // Delete the comment first
+      await deleteDoc(commentRef);
+      
+      // 🌟 FIXED: Get updated comments count after deletion
+      const commentsSnapshot = await getDocs(collection(db, "posts", postId, "comments"));
+      const updatedCommentsCount = commentsSnapshot.size;
+      
+      // Update the post with the accurate comments count
+      await updateDoc(postRef, {
+        commentsCount: updatedCommentsCount,
+        updatedAt: serverTimestamp(),
+      });
+
+      setCommentToDelete(null);
+      showNotification("Comment deleted successfully!", "success");
+    } catch (err) {
+      console.error("Error deleting comment:", err);
+      showNotification("Failed to delete comment. Please try again.", "error");
     }
   };
 
@@ -675,7 +750,7 @@ export default function App() {
     }
   };
 
-  // 🌟 UPDATED: handleCreatePost without syncUserProfile 🌟
+  // 🌟 FIXED: IMPROVED handleCreatePost - INITIALIZE COMMENTS COUNT PROPERLY 🌟
   const handleCreatePost = async () => {
     if (!content.trim() && !fileToUpload) {
       showNotification("Please add content or attach a file.", "error");
@@ -711,6 +786,7 @@ export default function App() {
 
       console.log("📝 Creating post with author info:", authorInfo);
 
+      // 🌟 FIXED: Initialize commentsCount to 0 properly
       await addDoc(collection(db, "posts"), {
         userId: user.uid,
         authorId: user.uid,
@@ -718,7 +794,7 @@ export default function App() {
         authorPhotoURL: authorInfo.photoURL,
         category: selectedCategory,
         content: content.trim(),
-        commentsCount: 0,
+        commentsCount: 0, // Start with 0 comments
         reactsCount: 0,
         pinned: false,
         mediaUrl: mediaUrl || null,
@@ -920,7 +996,7 @@ export default function App() {
       }
 
       setShowDeleteConfirm(null);
-      showNotification("deleted successfully!", "success");
+      showNotification("Post deleted successfully!", "success");
 
     } catch (err) {
       console.error("❌ Error deleting post:", err);
@@ -1101,10 +1177,11 @@ export default function App() {
       </header>
 
       {/* MAIN CONTENT */}
-      <div className="flex-1 overflow-auto">
-        <div className="flex flex-col lg:flex-row m-8 gap-6 bg-gray-100 min-h-screen">
-          {/* Left Column - Posts */}
-          <div className="flex flex-col w-full lg:w-2/3">
+      <div className="flex-1 overflow-hidden">
+        <div className="flex flex-col lg:flex-row m-8 gap-6 bg-gray-100 min-h-[calc(100vh-140px)]">
+          
+          {/* Left Column - Posts (Scrollable) */}
+          <div className="flex flex-col w-full lg:w-2/3 overflow-y-auto max-h-[calc(100vh-180px)]">
             {posts.length === 0 && (
               <div className="text-gray-500 text-center mt-8">No posts yet</div>
             )}
@@ -1195,21 +1272,22 @@ export default function App() {
                     {/* Render media content based on type */}
                     {renderMediaContent(post)}
 
-                    {/* Reactions and Comments Count */}
+                    {/* 🌟 FIXED: Reactions and Comments Count - NOW ACCURATE 🌟 */}
                     <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
                       <div
                         className="flex items-center gap-1 cursor-pointer hover:underline"
                         onClick={() => openReactsModal(post.id!)}
                       >
                         <span>{post.reactsCount}</span>
-                        <span>Reacts</span>
+                        <span>{post.reactsCount === 1 ? 'React' : 'Reacts'}</span>
                       </div>
                       <div
                         className="flex items-center gap-1 cursor-pointer hover:underline"
                         onClick={() => handleViewComments(post.id!)}
                       >
+                        {/* 🌟 FIXED: Now shows actual comments count from Firestore */}
                         <span>{post.commentsCount}</span>
-                        <span>Comment</span>
+                        <span>{post.commentsCount === 1 ? 'Comment' : 'Comments'}</span>
                       </div>
                     </div>
 
@@ -1378,7 +1456,7 @@ export default function App() {
                 {selectedPostId === post.id && (
                   <div className="mt-3 border-t pt-3">
                     <h4 className="font-semibold mb-2 text-gray-800">
-                      Comments
+                      Comments ({comments[post.id!]?.length || 0})
                     </h4>
 
                     {comments[post.id!]?.length ? (
@@ -1386,7 +1464,7 @@ export default function App() {
                         {comments[post.id!].map((c) => (
                           <div
                             key={c.id}
-                            className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200"
+                            className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 relative group"
                           >
                             <ProfileImage
                               src={c.photoURL}
@@ -1411,6 +1489,40 @@ export default function App() {
                                 {c.content || c.text}
                               </p>
                             </div>
+
+                            {/* 🌟 NEW: DELETE COMMENT BUTTON - ADMIN ONLY 🌟 */}
+                            {isAdmin && (
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                {commentToDelete?.postId === post.id && commentToDelete?.commentId === c.id ? (
+                                  <div className="flex items-center gap-1 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                                    <ExclamationTriangleIcon className="h-3 w-3 text-red-500" />
+                                    <span className="text-xs text-red-700 font-medium mr-1">
+                                      Delete?
+                                    </span>
+                                    <button
+                                      onClick={() => handleDeleteComment(post.id!, c.id!)}
+                                      className="text-xs bg-red-600 text-white px-1 py-0.5 rounded hover:bg-red-700"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button
+                                      onClick={() => setCommentToDelete(null)}
+                                      className="text-xs bg-gray-500 text-white px-1 py-0.5 rounded hover:bg-gray-600"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setCommentToDelete({ postId: post.id!, commentId: c.id! })}
+                                    className="p-1 text-red-500 hover:bg-red-50 rounded-full transition-colors duration-200"
+                                    title="Delete comment"
+                                  >
+                                    <TrashIcon className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1447,147 +1559,107 @@ export default function App() {
             ))}
           </div>
 
-          {/* Right Column - Create Post */}
+          {/* 🌟 FIXED: Right Column - Create Post - NOW PROPERLY SCROLLS 🌟 */}
           {isAdmin && (
-            <div className="w-full lg:w-1/3 bg-white rounded-lg shadow-lg h-fit border border-gray-200">
-              {/* 🔹 Black Header */}
-              <div className="bg-object text-white px-6 py-4 rounded-t-lg">
-                <h2 className="text-lg font-semibold">Create post</h2>
-              </div>
-
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex items-center gap-2 ml-auto">
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="announcement">Announcement</option>
-                      <option value="complaint">Complaint</option>
-                      <option value="general">General</option>
-                    </select>
-                    <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 cursor-pointer transition-all duration-200 border border-gray-300">
-                      <span className="text-lg">📎</span>
-                      <span>Attach Files</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        onChange={handleFileChange}
-                        ref={fileInputRef}
-                        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                      />
-                    </label>
-                  </div>
+            <div className="w-full lg:w-1/3">
+              <div className="sticky top-8 bg-white rounded-lg shadow-lg h-fit border border-gray-200">
+                {/* 🔹 Black Header */}
+                <div className="bg-object text-white px-6 py-4 rounded-t-lg">
+                  <h2 className="text-lg font-semibold">Create post</h2>
                 </div>
 
-                {selectedFileName && (
-                  <div className="text-sm text-gray-600 mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <strong>Selected file:</strong> {selectedFileName}
-                      </div>
-                      <button
-                        onClick={() => {
-                          setFileToUpload(null);
-                          setSelectedFileName("");
-                          if (fileInputRef.current)
-                            fileInputRef.current.value = "";
-                        }}
-                        className="text-red-600 hover:text-red-800 transition-colors duration-200"
+                <div className="p-4">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex items-center gap-2 ml-auto">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       >
-                        ✕ Remove
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {isUploading && uploadProgress > 0 && (
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm text-gray-600 mb-1">
-                      <span>Uploading...</span>
-                      <span>{uploadProgress}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${uploadProgress}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-
-                <textarea
-                  placeholder="Type a post"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 placeholder-gray-400 transition-all duration-200"
-                  rows={6}
-                  disabled={isUploading}
-                />
-
-                <div className="flex justify-end gap-2 mt-4 border-t pt-4">
-                  <button
-                    className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all duration-200 font-medium"
-                    onClick={handleCancelPost}
-                    disabled={isUploading}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCreatePost}
-                    disabled={isUploading || (!content.trim() && !fileToUpload)}
-                    className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      isUploading || (!content.trim() && !fileToUpload)
-                        ? "bg-gray-500 cursor-not-allowed text-white"
-                        : "bg-object hover:bg-yel text-white"
-                    }`}
-                  >
-                    {isUploading ? "Posting..." : "Post"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Reacts Modal */}
-          {showReactsModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg shadow-lg w-full max-w-sm mx-4 p-4">
-                <div className="flex justify-between items-center border-b pb-2 mb-4">
-                  <h3 className="font-bold text-lg">Reacts</h3>
-                  <button
-                    onClick={closeReactsModal}
-                    className="text-gray-500 hover:text-gray-700 text-2xl transition-colors duration-200"
-                  >
-                    &times;
-                  </button>
-                </div>
-
-                {reacts[selectedReactPostId!]?.length > 0 ? (
-                  <div className="max-h-80 overflow-y-auto">
-                    {reacts[selectedReactPostId!]?.map((r) => (
-                      <div
-                        key={r.id}
-                        className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                      >
-                        <ProfileImage
-                          src={r.photoURL}
-                          alt={r.authorName}
-                          className="rounded-full w-8 h-8 object-cover"
-                          fallbackText={r.authorName}
+                        <option value="announcement">Announcement</option>
+                        <option value="complaint">Complaint</option>
+                        <option value="general">General</option>
+                      </select>
+                      <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 cursor-pointer transition-all duration-200 border border-gray-300">
+                        <span className="text-lg">📎</span>
+                        <span>Attach Files</span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={handleFileChange}
+                          ref={fileInputRef}
+                          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                         />
-                        <p className="font-semibold text-gray-800">
-                          {r.authorName || "HOA Official"}
-                        </p>
-                      </div>
-                    ))}
+                      </label>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">
-                    No reacts yet.
-                  </p>
-                )}
+
+                  {selectedFileName && (
+                    <div className="text-sm text-gray-600 mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <strong>Selected file:</strong> {selectedFileName}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setFileToUpload(null);
+                            setSelectedFileName("");
+                            if (fileInputRef.current)
+                              fileInputRef.current.value = "";
+                          }}
+                          className="text-red-600 hover:text-red-800 transition-colors duration-200"
+                        >
+                          ✕ Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {isUploading && uploadProgress > 0 && (
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm text-gray-600 mb-1">
+                        <span>Uploading...</span>
+                        <span>{uploadProgress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${uploadProgress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+
+                  <textarea
+                    placeholder="Type a post"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 placeholder-gray-400 transition-all duration-200"
+                    rows={6}
+                    disabled={isUploading}
+                  />
+
+                  <div className="flex justify-end gap-2 mt-4 border-t pt-4">
+                    <button
+                      className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all duration-200 font-medium"
+                      onClick={handleCancelPost}
+                      disabled={isUploading}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreatePost}
+                      disabled={isUploading || (!content.trim() && !fileToUpload)}
+                      className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        isUploading || (!content.trim() && !fileToUpload)
+                          ? "bg-gray-500 cursor-not-allowed text-white"
+                          : "bg-object hover:bg-yel text-white"
+                      }`}
+                    >
+                      {isUploading ? "Posting..." : "Post"}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1599,6 +1671,48 @@ export default function App() {
         notifications={notifications} 
         removeNotification={removeNotification} 
       />
+
+      {/* Reacts Modal */}
+      {showReactsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm mx-4 p-4">
+            <div className="flex justify-between items-center border-b pb-2 mb-4">
+              <h3 className="font-bold text-lg">Reacts</h3>
+              <button
+                onClick={closeReactsModal}
+                className="text-gray-500 hover:text-gray-700 text-2xl transition-colors duration-200"
+              >
+                &times;
+              </button>
+            </div>
+
+            {reacts[selectedReactPostId!]?.length > 0 ? (
+              <div className="max-h-80 overflow-y-auto">
+                {reacts[selectedReactPostId!]?.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  >
+                    <ProfileImage
+                      src={r.photoURL}
+                      alt={r.authorName}
+                      className="rounded-full w-8 h-8 object-cover"
+                      fallbackText={r.authorName}
+                    />
+                    <p className="font-semibold text-gray-800">
+                      {r.authorName || "HOA Official"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-4">
+                No reacts yet.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

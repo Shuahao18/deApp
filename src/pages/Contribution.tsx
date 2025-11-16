@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   FiPlus,
   FiChevronLeft,
@@ -49,7 +49,7 @@ interface Member {
   emailAddress: string;
   civilStatus: string;
   roleInHOA: string;
-  status: "Active" | "Inactive" | "Deleted";
+  status: "Active" | "Inactive" | "Deleted" | "Pending" | "New";
   statusUpdatedAt?: Date;
   createdAt?: Date;
 }
@@ -232,9 +232,15 @@ const checkAndUpdateMemberStatus = async () => {
           memberCreatedAt.getFullYear() === currentYear;
 
         if (isNewMemberThisMonth) {
-          // 🛡️ NEW MEMBER PROTECTION: Don't make inactive if created this month
-          console.log(`🛡️ ${memberAccNo}: NEW MEMBER this month - skipping status change`);
-          return null;
+          // 🛡️ NEW MEMBER PROTECTION: Set to "New" if not already set
+          if (currentStatus === "Active" || currentStatus === "Inactive") {
+            // Keep existing status if already set by admin
+            console.log(`🛡️ ${memberAccNo}: NEW MEMBER - keeping current status: ${currentStatus}`);
+          } else {
+            // Set to "New" for new unconfirmed members
+            newStatus = "New";
+            console.log(`🛡️ ${memberAccNo}: NEW MEMBER → NEW (awaiting admin confirmation)`);
+          }
         } else {
           newStatus = "Inactive";
           console.log(`📉 ${memberAccNo}: NOT PAID → INACTIVE`);
@@ -921,6 +927,9 @@ const AddPaymentModal = ({
   const [isSearching, setIsSearching] = useState(false);
   const [memberError, setMemberError] = useState("");
   const [memberId, setMemberId] = useState("");
+  
+  // ✅ ADD THIS: Prevent double submission flag
+  const isSubmittingRef = useRef(false);
 
   const fetchMemberDetails = async (accNo: string) => {
     if (accNo.length < 3) {
@@ -943,27 +952,47 @@ const AddPaymentModal = ({
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        setMemberError(
-          `Account No. ${accNo} not found or is inactive/deleted.`
-        );
+        setMemberError(`Account No. ${accNo} not found.`);
         setFormData((prev) => ({ ...prev, name: "" }));
       } else {
         const memberDoc = querySnapshot.docs[0];
         const memberData = memberDoc.data();
-        const fullName = [
-          memberData.surname,
-          memberData.firstname,
-          memberData.middlename,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        setFormData((prev) => ({
-          ...prev,
-          name: fullName || "N/A",
-          amount: memberData.default_dues || 30.0,
-        }));
-        setMemberId(memberDoc.id);
-        setMemberError("");
+        
+        // ✅ CHECK MEMBER STATUS - ONLY ALLOW ACTIVE/INACTIVE
+        const memberStatus = memberData.status;
+        
+        if (memberStatus === "Active" || memberStatus === "Inactive") {
+          // ✅ ALLOW PAYMENT FOR ACTIVE/INACTIVE MEMBERS
+          const fullName = [
+            memberData.surname,
+            memberData.firstName || memberData.firstname,
+            memberData.middleName || memberData.middlename,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          setFormData((prev) => ({
+            ...prev,
+            name: fullName || "N/A",
+            amount: memberData.default_dues || 30.0,
+          }));
+          setMemberId(memberDoc.id);
+          setMemberError("");
+        } else if (memberStatus === "New") {
+          // ❌ BLOCK PAYMENT FOR NEW MEMBERS - SHOW SPECIFIC MESSAGE
+          setMemberError(`Account No. ${accNo} is a NEW member. Please wait for admin to confirm and activate this account before making payments.`);
+          setFormData((prev) => ({ ...prev, name: "NEW MEMBER - AWAITING CONFIRMATION" }));
+          setMemberId("");
+        } else if (memberStatus === "Pending") {
+          // ❌ BLOCK PAYMENT FOR PENDING MEMBERS
+          setMemberError(`Account No. ${accNo} is PENDING approval. Please wait for admin confirmation.`);
+          setFormData((prev) => ({ ...prev, name: "PENDING - AWAITING CONFIRMATION" }));
+          setMemberId("");
+        } else {
+          // ❌ BLOCK PAYMENT FOR OTHER STATUSES
+          setMemberError(`Account No. ${accNo} status is "${memberStatus}". Please wait for admin approval.`);
+          setFormData((prev) => ({ ...prev, name: `${memberStatus.toUpperCase()} - AWAITING CONFIRMATION` }));
+          setMemberId("");
+        }
       }
     } catch (error) {
       console.error("Error searching member:", error);
@@ -983,20 +1012,93 @@ const AddPaymentModal = ({
     };
   }, [formData.accNo]);
 
+  // ✅ RESET FORM WHEN MODAL CLOSES/OPENS
+  useEffect(() => {
+    if (show) {
+      // Reset form when modal opens
+      setFormData({
+        accNo: "",
+        name: "",
+        amount: 30.0,
+        paymentMethod: "Cash Payment",
+        recipient: "",
+        transactionDate: new Date().toISOString().substring(0, 10),
+      });
+      setImageFile(null);
+      setMemberError("");
+      setMemberId("");
+      setIsSaving(false);
+      // ✅ RESET THE SUBMISSION FLAG
+      isSubmittingRef.current = false;
+    }
+  }, [show]);
+
   if (!show) return null;
 
   const handleSave = async () => {
-    if (memberError || !formData.name || isSearching) {
-      return;
-    }
-    if (!formData.amount || !formData.recipient || !formData.transactionDate) {
-      return;
-    }
-    if (!memberId) {
+    // ✅ CRITICAL FIX: PROPER DOUBLE SUBMISSION PREVENTION
+    if (isSubmittingRef.current || isSaving) {
+      console.log("🛑 BLOCKED: Submission already in progress");
       return;
     }
 
+    // ✅ SET BOTH STATE AND REF TO PREVENT DOUBLE CLICKS
+    isSubmittingRef.current = true;
     setIsSaving(true);
+
+    // Existing validations...
+    if (memberError || !formData.name || isSearching) {
+      // ✅ RESET FLAGS IF VALIDATION FAILS
+      isSubmittingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+    if (!formData.amount || !formData.recipient || !formData.transactionDate) {
+      // ✅ RESET FLAGS IF VALIDATION FAILS
+      isSubmittingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+    if (!memberId) {
+      // ✅ RESET FLAGS IF VALIDATION FAILS
+      isSubmittingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+
+    // ✅ ADDITIONAL STATUS CHECK BEFORE SAVING
+    try {
+      const memberDocRef = doc(db, "members", memberId);
+      const memberDoc = await getDoc(memberDocRef);
+      
+      if (memberDoc.exists()) {
+        const memberData = memberDoc.data();
+        const memberStatus = memberData.status;
+        
+        // ❌ BLOCK IF MEMBER IS NOT ACTIVE/INACTIVE
+        if (memberStatus !== "Active" && memberStatus !== "Inactive") {
+          setMemberError(`Payment blocked: Member status is "${memberStatus}". Please wait for admin confirmation.`);
+          // ✅ RESET FLAGS IF VALIDATION FAILS
+          isSubmittingRef.current = false;
+          setIsSaving(false);
+          return;
+        }
+      } else {
+        setMemberError("Member record not found.");
+        // ✅ RESET FLAGS IF VALIDATION FAILS
+        isSubmittingRef.current = false;
+        setIsSaving(false);
+        return;
+      }
+    } catch (error) {
+      console.error("Error verifying member status:", error);
+      setMemberError("Error verifying member status. Please try again.");
+      // ✅ RESET FLAGS IF VALIDATION FAILS
+      isSubmittingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+
     let proofURL = "";
 
     try {
@@ -1009,6 +1111,9 @@ const AddPaymentModal = ({
       const existingPaymentSnapshot = await getDocs(existingPaymentQuery);
 
       if (!existingPaymentSnapshot.empty) {
+        setMemberError(`Member ${formData.accNo} already has a payment for ${monthYear}`);
+        // ✅ RESET FLAGS IF DUPLICATE FOUND
+        isSubmittingRef.current = false;
         setIsSaving(false);
         return;
       }
@@ -1035,7 +1140,10 @@ const AddPaymentModal = ({
         proofURL: proofURL,
       });
 
+      // ✅ SUCCESS - CALL ONSAVE AND RESET FORM
       onSave();
+      
+      // ✅ RESET FORM AFTER SUCCESSFUL SUBMISSION
       setFormData({
         accNo: "",
         name: "",
@@ -1047,12 +1155,19 @@ const AddPaymentModal = ({
       setImageFile(null);
       setMemberError("");
       setMemberId("");
+      
     } catch (error) {
       console.error("Error saving contribution:", error);
+      setMemberError("Failed to save payment. Please try again.");
     } finally {
+      // ✅ CRITICAL: ALWAYS RESET BOTH STATE AND REF
+      isSubmittingRef.current = false;
       setIsSaving(false);
     }
   };
+
+  // ✅ DISABLE ALL FORM INPUTS WHILE SAVING
+  const isFormDisabled = isSaving;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1073,9 +1188,11 @@ const AddPaymentModal = ({
               onChange={(e) =>
                 setFormData({ ...formData, accNo: e.target.value })
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648] ${
+                isFormDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
               placeholder="Enter member's account number"
-              disabled={isSaving}
+              disabled={isFormDisabled}
             />
             {memberError && (
               <p className="text-xs text-red-600 mt-1">{memberError}</p>
@@ -1094,7 +1211,7 @@ const AddPaymentModal = ({
               type="text"
               value={formData.name}
               readOnly
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-gray-100 focus:outline-none"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-gray-100 focus:outline-none cursor-not-allowed"
               placeholder={
                 formData.name ||
                 (memberError ? "Name not found" : "Awaiting account number...")
@@ -1113,9 +1230,11 @@ const AddPaymentModal = ({
               onChange={(e) =>
                 setFormData({ ...formData, recipient: e.target.value })
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648] ${
+                isFormDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
               placeholder="Enter recipient's name"
-              disabled={isSaving}
+              disabled={isFormDisabled}
             />
           </div>
 
@@ -1126,8 +1245,10 @@ const AddPaymentModal = ({
               onChange={(e) =>
                 setFormData({ ...formData, paymentMethod: e.target.value })
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
-              disabled={isSaving}
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648] ${
+                isFormDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
+              disabled={isFormDisabled}
             >
               <option value="Cash Payment">Cash Payment</option>
               <option value="GCash">GCash</option>
@@ -1145,8 +1266,10 @@ const AddPaymentModal = ({
                 onChange={(e) =>
                   setFormData({ ...formData, transactionDate: e.target.value })
                 }
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white focus:ring-[#125648] focus:border-[#125648]"
-                disabled={isSaving}
+                className={`w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648] ${
+                  isFormDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                }`}
+                disabled={isFormDisabled}
               />
             </div>
             <div>
@@ -1162,9 +1285,11 @@ const AddPaymentModal = ({
                     amount: parseFloat(e.target.value) || 0,
                   })
                 }
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648]"
+                className={`w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 focus:ring-[#125648] focus:border-[#125648] ${
+                  isFormDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                }`}
                 placeholder="Enter the payment value"
-                disabled={isSaving}
+                disabled={isFormDisabled}
               />
             </div>
           </div>
@@ -1173,7 +1298,9 @@ const AddPaymentModal = ({
             <label className="block text-sm font-medium mb-1">
               Proof of Payment (Optional)
             </label>
-            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition cursor-pointer">
+            <div className={`relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition ${
+              isFormDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+            }`}>
               {imageFile ? (
                 <p className="text-sm text-green-600">
                   File selected: {imageFile.name}
@@ -1189,7 +1316,7 @@ const AddPaymentModal = ({
                   setImageFile(e.target.files ? e.target.files[0] : null)
                 }
                 className="opacity-0 absolute inset-0 cursor-pointer"
-                disabled={isSaving}
+                disabled={isFormDisabled}
               />
             </div>
           </div>
@@ -1198,7 +1325,7 @@ const AddPaymentModal = ({
         <div className="mt-6 pt-4 border-t flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
             disabled={isSaving}
           >
             Cancel
@@ -1212,9 +1339,22 @@ const AddPaymentModal = ({
               isSearching ||
               !memberId
             }
-            className="bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400"
+            className="flex items-center justify-center bg-[#125648] text-white px-4 py-2 rounded-lg hover:bg-[#0d3d33] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors min-w-[120px]"
+            title={
+              isSaving ? "Submitting payment..." :
+              memberError ? memberError : 
+              !formData.name ? "Please enter valid account number" :
+              "Submit payment"
+            }
           >
-            {isSaving ? "Submitting..." : "Submit Payment"}
+            {isSaving ? (
+              <>
+                <FiRefreshCw className="animate-spin w-4 h-4 mr-2" />
+                Submitting...
+              </>
+            ) : (
+              "Submit Payment"
+            )}
           </button>
         </div>
       </div>
@@ -1257,7 +1397,7 @@ const ExportModal = ({
     { key: "recipient", label: "Recipient" },
     { key: "transactionDate", label: "Date Paid" },
     { key: "proofURL", label: "Proof of Payment" },
-    { key: "userId", label: "User ID" },
+    
   ];
 
   const handleToggleColumn = (key: string) => {

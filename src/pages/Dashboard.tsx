@@ -158,9 +158,9 @@ function FinancialOverview({
   return (
     <div className="bg-white p-4 sm:p-6 rounded shadow-md w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
-        <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
-          Financial Overview ({selectedYear} Collections & Expenses)
-        </h2>
+       <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
+  Financial Overview ({selectedYear} Contributions & Expenses)
+</h2>
         <div className="flex items-center gap-2">
           <label htmlFor="year-select" className="text-xs sm:text-sm text-gray-600">
             Year:
@@ -205,7 +205,7 @@ function FinancialOverview({
             />
             <Line
               type="monotone"
-              dataKey="Collections"
+              dataKey="Contributions"
               stroke="#007963"
               strokeWidth={2}
               dot={false}
@@ -611,7 +611,7 @@ function Dashboard({
         
         return {
           month,
-          Collections: monthData.collections,
+          Contributions: monthData.collections,
           Expenses: monthData.expenses
         };
       });

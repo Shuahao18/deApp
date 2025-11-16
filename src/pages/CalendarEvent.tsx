@@ -15,7 +15,6 @@ import {
 import { db } from "../Firebase";
 import {
   UserCircleIcon,
-  ShareIcon,
   PencilIcon,
   TrashIcon,
   PlusIcon,
@@ -36,7 +35,7 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// Floating Input Component with success state
+// Floating Input Component - REMOVED CHECK ICONS
 const FloatingInput: React.FC<{
   id: string;
   label: string;
@@ -46,7 +45,6 @@ const FloatingInput: React.FC<{
   type?: string;
   className?: string;
   disabled?: boolean;
-  isValid?: boolean;
 }> = ({
   id,
   label,
@@ -56,7 +54,6 @@ const FloatingInput: React.FC<{
   type = "text",
   className = "",
   disabled = false,
-  isValid = false,
 }) => {
   return (
     <div className={`relative ${className}`}>
@@ -69,33 +66,23 @@ const FloatingInput: React.FC<{
         disabled={disabled}
         className={`peer w-full h-16 rounded-xl border-2 px-4 pt-4 pb-2 outline-none transition ${
           disabled ? "opacity-50 cursor-not-allowed bg-gray-100" : "bg-white"
-        } ${
-          isValid && value
-            ? "border-green-500"
-            : "border-gray-400 focus:border-emerald-700"
-        }`}
+        } border-gray-400 focus:border-emerald-700`}
       />
       <label
         htmlFor={id}
         className={`pointer-events-none absolute left-4 px-1 transition-all 
                  top-2 text-xs peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 
-                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs ${
-                   isValid && value
-                     ? "text-green-700"
-                     : "peer-focus:text-emerald-700"
-                 } ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
+                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs 
+                 peer-focus:text-emerald-700 ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
       >
         {label}
         {required && <span className="text-red-600"> *</span>}
       </label>
-      {isValid && value && (
-        <CheckCircleIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-500" />
-      )}
     </div>
   );
 };
 
-// Floating Textarea Component with success state
+// Floating Textarea Component - REMOVED CHECK ICONS
 const FloatingTextarea: React.FC<{
   id: string;
   label: string;
@@ -105,7 +92,6 @@ const FloatingTextarea: React.FC<{
   className?: string;
   disabled?: boolean;
   rows?: number;
-  isValid?: boolean;
 }> = ({
   id,
   label,
@@ -115,7 +101,6 @@ const FloatingTextarea: React.FC<{
   className = "",
   disabled = false,
   rows = 3,
-  isValid = false,
 }) => {
   return (
     <div className={`relative ${className}`}>
@@ -128,33 +113,23 @@ const FloatingTextarea: React.FC<{
         rows={rows}
         className={`peer w-full rounded-xl border-2 px-4 pt-6 pb-2 outline-none transition resize-none ${
           disabled ? "opacity-50 cursor-not-allowed bg-gray-100" : "bg-white"
-        } ${
-          isValid && value
-            ? "border-green-500"
-            : "border-gray-400 focus:border-emerald-700"
-        }`}
+        } border-gray-400 focus:border-emerald-700`}
       />
       <label
         htmlFor={id}
         className={`pointer-events-none absolute left-4 px-1 transition-all 
                  top-2 text-xs peer-placeholder-shown:top-4 peer-placeholder-shown:-translate-y-1/2 
-                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs ${
-                   isValid && value
-                     ? "text-green-700"
-                     : "peer-focus:text-emerald-700"
-                 } ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
+                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs 
+                 peer-focus:text-emerald-700 ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
       >
         {label}
         {required && <span className="text-red-600"> *</span>}
       </label>
-      {isValid && value && (
-        <CheckCircleIcon className="absolute right-3 top-6 h-5 w-5 text-green-500" />
-      )}
     </div>
   );
 };
 
-// Floating Date Input Component with success state
+// Floating Date Input Component - REMOVED CHECK ICONS
 const FloatingDateInput: React.FC<{
   id: string;
   label: string;
@@ -163,7 +138,6 @@ const FloatingDateInput: React.FC<{
   required?: boolean;
   className?: string;
   disabled?: boolean;
-  isValid?: boolean;
 }> = ({
   id,
   label,
@@ -172,7 +146,6 @@ const FloatingDateInput: React.FC<{
   onChange,
   className = "",
   disabled = false,
-  isValid = false,
 }) => {
   return (
     <div className={`relative ${className}`}>
@@ -185,28 +158,18 @@ const FloatingDateInput: React.FC<{
         disabled={disabled}
         className={`peer w-full h-16 rounded-xl border-2 px-4 pt-4 pb-2 outline-none transition ${
           disabled ? "opacity-50 cursor-not-allowed bg-gray-100" : "bg-white"
-        } ${
-          isValid && value
-            ? "border-green-500"
-            : "border-gray-400 focus:border-emerald-700"
-        }`}
+        } border-gray-400 focus:border-emerald-700`}
       />
       <label
         htmlFor={id}
         className={`pointer-events-none absolute left-4 px-1 transition-all 
                  top-2 text-xs peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 
-                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs ${
-                   isValid && value
-                     ? "text-green-700"
-                     : "peer-focus:text-emerald-700"
-                 } ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
+                 peer-placeholder-shown:text-base peer-focus:top-2 peer-focus:text-xs 
+                 peer-focus:text-emerald-700 ${disabled ? "bg-gray-100 text-gray-500" : "bg-white text-gray-700"}`}
       >
         {label}
         {required && <span className="text-red-600"> *</span>}
       </label>
-      {isValid && value && (
-        <CheckCircleIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-500" />
-      )}
     </div>
   );
 };
@@ -229,7 +192,7 @@ export default function CalendarEvent() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Form states - gaya ng AccReg
+  // Form states
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [start, setStart] = useState("");
@@ -240,8 +203,11 @@ export default function CalendarEvent() {
     navigate("/EditModal");
   };
 
-  const handleDashboardClick = () => {
-    navigate("/Dashboard");
+  // FIXED: Convert Date to datetime-local string format (CORRECT TIME HANDLING)
+  const dateToLocalDateTimeString = (date: Date): string => {
+    // Create a new date to avoid timezone issues
+    const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+    return localDate.toISOString().slice(0, 16);
   };
 
   useEffect(() => {
@@ -266,7 +232,7 @@ export default function CalendarEvent() {
             isNaN(endDate.getTime()) ||
             endDate.getTime() <= startDate.getTime()
           ) {
-            endDate = new Date(startDate.getTime() + 60000);
+            endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour default
           }
 
           let createdAt =
@@ -292,7 +258,7 @@ export default function CalendarEvent() {
     fetchEvents();
   }, []);
 
-  // Reset form function - gaya ng AccReg
+  // Reset form function
   const resetForm = () => {
     setTitle("");
     setDescription("");
@@ -314,25 +280,28 @@ export default function CalendarEvent() {
     resetForm();
   };
 
-  // Handle event selection from calendar - DIRECT EDIT/DELETE
+  // Handle event selection from calendar
   const handleSelectEvent = (event: EventType) => {
     setSelectedEvent(event);
     setShowDeleteConfirm(false);
   };
 
-  // Handle event selection from list - DIRECT EDIT/DELETE
+  // Handle event selection from list
   const handleEventItemClick = (event: EventType) => {
     setSelectedEvent(event);
     setShowDeleteConfirm(false);
   };
 
-  // Edit event - DIRECT OPEN MODAL
+  // FIXED: Edit event - Correct time handling
   const handleEditEvent = () => {
     if (selectedEvent) {
       setIsEditing(true);
       setTitle(selectedEvent.title);
       setDescription(selectedEvent.description || "");
-      setStart(selectedEvent.start.toISOString().slice(0, 16));
+      
+      // FIXED: Use the correct time conversion
+      const localDateTime = dateToLocalDateTimeString(selectedEvent.start);
+      setStart(localDateTime);
       setShowModal(true);
     }
   };
@@ -347,7 +316,7 @@ export default function CalendarEvent() {
     setShowDeleteConfirm(false);
   };
 
-  // Delete event - DIRECT DELETE
+  // Delete event
   const handleDeleteEvent = async () => {
     if (selectedEvent && selectedEvent.id) {
       try {
@@ -372,7 +341,9 @@ export default function CalendarEvent() {
       return;
     }
 
+    // FIXED: Correct date parsing that preserves the local time
     const startDate = new Date(start);
+    
     if (isNaN(startDate.getTime())) {
       console.log("Invalid date format. Please use the date/time picker.");
       setIsProcessing(false);
@@ -454,19 +425,15 @@ export default function CalendarEvent() {
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* TOP HEADER - Calendar Events Header */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        {/* Calendar Events Title - Left Side */}
         <div className="flex items-center space-x-4">
           <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
             Calendar Events
           </h1>
         </div>
 
-        {/* Empty Center for Balance */}
         <div className="flex-1"></div>
 
-        {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
@@ -564,7 +531,6 @@ export default function CalendarEvent() {
                     .toUpperCase();
 
                   return (
-                    // START of Event Item
                     <div
                       key={event.id || index}
                       className={`flex items-center gap-4 border-b pb-4 cursor-pointer transition-colors ${
@@ -589,7 +555,6 @@ export default function CalendarEvent() {
                         <div className="font-bold text-lg font-montserrat">
                           {event.title}
                         </div>
-                        {/* Display description in the list (shortened) */}
                         {event.description && (
                           <div className="text-sm text-gray-500 italic">
                             {event.description.substring(0, 50)}
@@ -605,7 +570,6 @@ export default function CalendarEvent() {
                           })}
                         </div>
 
-                        {/* Display the event time */}
                         <div className="text-xs text-gray-500">
                           {event.start.toLocaleTimeString([], {
                             hour: "2-digit",
@@ -614,7 +578,6 @@ export default function CalendarEvent() {
                         </div>
                       </div>
                     </div>
-                    // END of Event Item
                   );
                 })}
               </div>
@@ -645,7 +608,7 @@ export default function CalendarEvent() {
         </div>
       </main>
 
-      {/* Create/Edit Event Modal - GAYA NG AccReg STYLE */}
+      {/* Create/Edit Event Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -675,7 +638,6 @@ export default function CalendarEvent() {
                       value={title}
                       onChange={setTitle}
                       disabled={isProcessing}
-                      isValid={title.trim() !== ""}
                     />
 
                     <FloatingTextarea
@@ -685,7 +647,6 @@ export default function CalendarEvent() {
                       onChange={setDescription}
                       disabled={isProcessing}
                       rows={3}
-                      isValid={description.trim() !== ""}
                     />
 
                     <FloatingDateInput
@@ -695,17 +656,15 @@ export default function CalendarEvent() {
                       value={start}
                       onChange={setStart}
                       disabled={isProcessing}
-                      isValid={start.trim() !== ""}
                     />
                   </div>
 
-                  {/* Form validation status */}
+                  {/* Form validation status - UPDATED WITHOUT CHECK ICONS */}
                   <div className="mt-4 p-3 rounded-lg bg-gray-50">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">Form Status:</span>
                       {isFormValid ? (
-                        <span className="text-green-600 font-medium flex items-center gap-1">
-                          <CheckCircleIcon className="h-4 w-4" />
+                        <span className="text-green-600 font-medium">
                           Ready to {isEditing ? "update" : "create"}
                         </span>
                       ) : (
@@ -738,9 +697,6 @@ export default function CalendarEvent() {
                       ) : (
                         <>
                           {isEditing ? "Update Event" : "Create Event"}
-                          {isFormValid && (
-                            <CheckCircleIcon className="h-4 w-4" />
-                          )}
                         </>
                       )}
                     </button>

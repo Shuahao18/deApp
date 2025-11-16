@@ -590,7 +590,7 @@ const COLUMN_KEYS = [
   { label: "Email Address", key: "email" },
   { label: "Civil Status", key: "civilStatus" },
   { label: "Role in HOA", key: "role" },
-  { label: "House Address", key: "address" }, // ADDED HOUSE ADDRESS
+  { label: "House Address", key: "address" },
 ];
 
 const isValidEmail = (email: string): boolean => {
@@ -666,10 +666,8 @@ const useAuth = () => {
           isAdmin: role === "Admin",
         };
         setUserSession(sessionData);
-        console.log("🔄 User session updated:", sessionData);
       } else {
         setUserSession(null);
-        console.log("No user logged in");
       }
       setLoading(false);
     });
@@ -691,12 +689,6 @@ const validateAdminSession = async (): Promise<boolean> => {
   try {
     const adminDoc = await getDoc(doc(db, "admin", currentUser.uid));
     const isAdmin = adminDoc.exists();
-    console.log(
-      "🔐 Admin session validation:",
-      isAdmin,
-      "User:",
-      currentUser.email
-    );
     return isAdmin;
   } catch (error) {
     console.error("Error validating admin session:", error);
@@ -929,9 +921,9 @@ const ExportAccountsModal: React.FC<{
 /* ---------------- Main AccReg Component ---------------- */
 
 const AccReg: React.FC = () => {
-  useElectronFocusFix(); // Apply Electron focus fix
+  useElectronFocusFix();
 
-  // SIMPLE INDIVIDUAL STATES - gaya ng posting component
+  // STATES
   const [members, setMembers] = useState<MemberData[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -941,7 +933,7 @@ const AccReg: React.FC = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // INDIVIDUAL FORM STATES - gaya ng posting component
+  // FORM STATES
   const [surname, setSurname] = useState("");
   const [firstname, setFirstname] = useState("");
   const [middlename, setMiddlename] = useState("");
@@ -955,7 +947,7 @@ const AccReg: React.FC = () => {
   const [confirm, setConfirm] = useState("");
   const [status, setStatus] = useState("New");
 
-  // ADDITIONAL UI STATES
+  // UI STATES
   const [showPasswordInfo, setShowPasswordInfo] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
@@ -976,20 +968,19 @@ const AccReg: React.FC = () => {
     confirmState,
   } = useCustomConfirm();
 
-  // ✅ FIXED STATUS OPTIONS FUNCTION - Prevents Inactive → New/Active via editing
+  // ✅ CORRECTED STATUS OPTIONS FUNCTION - Admin CANNOT set Active to Inactive
   const getStatusOptions = useCallback((currentStatus: string) => {
-    // CRITICAL: Once Inactive, cannot be manually changed back to New/Active
-    // Must go through payment system to become Active again
+    // ❌ ADMIN CANNOT CHANGE INACTIVE STATUS - Payment system controls this
     if (currentStatus === "Inactive") {
       return ["Inactive"]; // Read-only, no options to change
     }
     
-    // Active members can be manually set to Inactive
+    // ❌ ADMIN CANNOT DEACTIVATE ACTIVE MEMBERS - Only payment system can do this
     if (currentStatus === "Active") {
-      return ["Active", "Inactive"];
+      return ["Active"]; // Read-only, cannot change to Inactive
     }
     
-    // New members can be set to Active or stay New
+    // ✅ Admin can only activate New members (New → Active)
     return ["New", "Active"];
   }, []);
 
@@ -997,14 +988,10 @@ const AccReg: React.FC = () => {
     return ["Member"];
   }, []);
 
-  // ✅ STATUS SYNCHRONIZATION: Real-time listener for member status changes
+  // Real-time listener for member status changes
   useEffect(() => {
-    console.log("🔄 Setting up real-time member status listener...");
-    
     const membersRef = collection(db, "members");
     const unsubscribe = onSnapshot(membersRef, (snapshot) => {
-      console.log("📡 Real-time update received for members");
-      
       const data = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
         return {
@@ -1025,117 +1012,14 @@ const AccReg: React.FC = () => {
 
       const filteredData = data.filter((m) => m.status && statusColors[m.status]);
       setMembers(filteredData);
-      
-      console.log(`✅ Real-time sync: ${filteredData.length} members loaded`);
     }, (error) => {
       console.error("❌ Error in real-time listener:", error);
     });
 
-    // Cleanup on unmount
-    return () => {
-      console.log("🧹 Cleaning up real-time listener");
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
-  // ✅ STATUS SYNCHRONIZATION: Periodic refresh as backup
-  useEffect(() => {
-    const refreshMembers = async () => {
-      console.log("🕒 Periodic refresh of members");
-      // The real-time listener should handle updates, but this is a backup
-    };
-
-    // Refresh every 10 minutes as backup
-    const interval = setInterval(refreshMembers, 10 * 60 * 1000);
-    
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
-  // ✅ STATUS SYNCHRONIZATION: Refresh when page becomes visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        console.log("👀 Page visible - ensuring data is fresh");
-        // Force a re-read from the real-time listener
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  // ✅ POST-CREATION DEBUG: Monitor critical states
-  useEffect(() => {
-    console.log("🎯 [POST-CREATION MONITOR] Critical states:", {
-      showModal,
-      isProcessing,
-      isEditing,
-      surname: surname ? "***" : "empty",
-      firstname: firstname ? "***" : "empty",
-    });
-  }, [showModal, isProcessing, isEditing, surname, firstname]);
-
-  // ✅ Navigation handlers
-  const handleAdminClick = () => {
-    navigate("/EditModal");
-  };
-
-  const handleDashboardClick = () => {
-    navigate("/Dashboard");
-  };
-
-  // ✅ Legacy fetch function (kept for compatibility, but real-time listener handles updates)
-  const fetchMembers = async () => {
-    try {
-      const membersRef = collection(db, "members");
-      const snapshot = await getDocs(membersRef);
-
-      const data = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data();
-        return {
-          id: docSnap.id,
-          accNo: d.accNo || "N/A",
-          surname: d.surname || "",
-          firstname: d.firstname || "",
-          middlename: d.middlename || "",
-          dob: d.dob || "",
-          address: d.address || "",
-          contact: d.contact || "",
-          email: d.email || "",
-          civilStatus: d.civilStatus || "",
-          role: d.role || "",
-          status: (d.status as MemberData["status"]) || "New",
-        };
-      }) as MemberData[];
-
-      setMembers(data.filter((m) => m.status && statusColors[m.status]));
-    } catch (error) {
-      console.error("Error fetching members:", error);
-    }
-  };
-
-  // ✅ IMPROVED RESET FUNCTION with detailed debugging
   const resetForm = useCallback(() => {
-    console.log("🔄 [POST-CREATION RESET] Starting form reset...");
-
-    // Store previous values for debugging
-    const previousValues = {
-      surname,
-      firstname,
-      email,
-      isEditing,
-      isProcessing,
-      showModal,
-    };
-
-    console.log("📊 [POST-CREATION RESET] Previous values:", previousValues);
-
-    // Reset all form states
     setSurname("");
     setFirstname("");
     setMiddlename("");
@@ -1149,7 +1033,6 @@ const AccReg: React.FC = () => {
     setConfirm("");
     setStatus("New");
 
-    // Reset UI states
     setErrorMessage(null);
     setShowPasswordInfo(false);
     setShowPassword(false);
@@ -1157,47 +1040,29 @@ const AccReg: React.FC = () => {
     setIsEditing(false);
     setCurrentMemberId(null);
     setIsProcessing(false);
-
-    console.log("✅ [POST-CREATION RESET] Form reset completed");
-    console.log("📊 [POST-CREATION RESET] New values:", {
-      surname: "",
-      firstname: "",
-      email: "",
-      isEditing: false,
-      isProcessing: false,
-    });
-  }, [surname, firstname, email, isEditing, isProcessing, showModal]);
+  }, []);
 
   const handleOpenCreateModal = async () => {
-    console.log("🎯 [POST-CREATION DEBUG] Opening create modal...");
     const isValidSession = await validateAdminSession();
     if (!isValidSession) {
       setErrorMessage("Admin session expired. Please log in again.");
       return;
     }
 
-    // Force blur any focused elements for Electron
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
 
-    // RESET MUNA BAGO MAG-OPEN - gaya ng posting
     resetForm();
     setShowModal(true);
 
-    // Focus management for Electron
     setTimeout(() => {
       const firstInput = document.querySelector("input") as HTMLInputElement;
       firstInput?.focus();
     }, 100);
-
-    console.log("✅ [POST-CREATION DEBUG] Modal opened successfully");
   };
 
   const handleCloseModal = () => {
-    console.log("🚪 [POST-CREATION DEBUG] Manual close triggered");
-
-    // Enhanced Electron focus management
     setTimeout(() => {
       setShowModal(false);
       if (document.activeElement instanceof HTMLElement) {
@@ -1220,7 +1085,7 @@ const AccReg: React.FC = () => {
         member.surname.toLowerCase().includes(searchQuery.toLowerCase()) ||
         member.accNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (member.address &&
-          member.address.toLowerCase().includes(searchQuery.toLowerCase())) // ADDED: Search by address
+          member.address.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
   const activeCount = members.filter((m) => m.status !== "Deleted").length;
@@ -1257,7 +1122,6 @@ const AccReg: React.FC = () => {
             "Success",
             `${memberName}'s account has been successfully marked as Deleted.`
           );
-          // Real-time listener will automatically update the UI
         } catch (error) {
           console.error("Error soft-deleting member:", error);
           showAlert(
@@ -1290,7 +1154,6 @@ const AccReg: React.FC = () => {
             "Success",
             `${memberName}'s account has been successfully Restored.`
           );
-          // Real-time listener will automatically update the UI
           setCurrentPage(1);
           setViewMode("active");
         } catch (error) {
@@ -1311,14 +1174,10 @@ const AccReg: React.FC = () => {
       return;
     }
 
-    console.log("✏️ Editing member:", member);
-
-    // Force blur any focused elements for Electron
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
 
-    // DIRECT STATE SETTING - gaya ng posting
     setSurname(member.surname || "");
     setFirstname(member.firstname || "");
     setMiddlename(member.middlename || "");
@@ -1338,7 +1197,6 @@ const AccReg: React.FC = () => {
     setErrorMessage(null);
     setShowPasswordInfo(false);
 
-    // Focus management for Electron
     setTimeout(() => {
       const firstInput = document.querySelector("input") as HTMLInputElement;
       firstInput?.focus();
@@ -1347,7 +1205,6 @@ const AccReg: React.FC = () => {
 
   const handleUpdateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("🔄 Updating account...");
     setErrorMessage(null);
     setIsProcessing(true);
 
@@ -1364,7 +1221,6 @@ const AccReg: React.FC = () => {
       return;
     }
 
-    // DIRECT OBJECT CREATION - gaya ng posting
     const memberData = {
       surname: surname,
       firstname: firstname,
@@ -1387,24 +1243,12 @@ const AccReg: React.FC = () => {
         `Account for ${firstname} ${surname} updated successfully!`
       );
 
-      // ✅ POST-CREATION FIX: SEQUENTIAL OPERATIONS
-      console.log("🎯 [POST-CREATION FLOW] Starting post-update operations...");
-
-      // Enhanced Electron focus management
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
 
-      // 1. Close modal FIRST
-      console.log("🔧 [POST-CREATION FLOW] Step 1: Closing modal");
       setShowModal(false);
-
-      // 2. Reset form SECOND
-      console.log("🔧 [POST-CREATION FLOW] Step 2: Resetting form");
       resetForm();
-
-      // Real-time listener will automatically refresh the data
-      console.log("✅ [POST-CREATION FLOW] All operations completed successfully");
     } catch (err: any) {
       console.error("Error updating member:", err);
       setErrorMessage(
@@ -1418,7 +1262,6 @@ const AccReg: React.FC = () => {
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("🆕 [POST-CREATION DEBUG] Starting account creation...");
     setErrorMessage(null);
     setIsProcessing(true);
 
@@ -1454,7 +1297,6 @@ const AccReg: React.FC = () => {
     try {
       const newAccNo = await getNextAccNo();
 
-      // DIRECT OBJECT CREATION - gaya ng posting
       const memberData = {
         surname: surname,
         firstname: firstname,
@@ -1477,47 +1319,19 @@ const AccReg: React.FC = () => {
         password: password,
       });
 
-      console.log(
-        "✅ [POST-CREATION DEBUG] Cloud function SUCCESS:",
-        result.data
-      );
-
       showAlert(
         "Success",
         `Account created successfully! Role: ${role} Account No: ${newAccNo} 🎉`
       );
 
-      // ✅ CRITICAL FIX: PROPER POST-CREATION SEQUENCE
-      console.log(
-        "🎯 [POST-CREATION FLOW] Starting post-creation operations..."
-      );
-
-      // Enhanced Electron focus management
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
 
-      // 1. Close modal FIRST - most important!
-      console.log("🔧 [POST-CREATION FLOW] Step 1: Closing modal");
-      console.log(
-        "📊 [POST-CREATION FLOW] Before modal close - showModal:",
-        showModal
-      );
       setShowModal(false);
-      console.log(
-        "📊 [POST-CREATION FLOW] After modal close - showModal should be false"
-      );
-
-      // 2. Reset form SECOND
-      console.log("🔧 [POST-CREATION FLOW] Step 2: Resetting form");
       resetForm();
-
-      // Real-time listener will automatically fetch the updated data
-      console.log(
-        "✅ [POST-CREATION FLOW] ALL POST-CREATION OPERATIONS COMPLETED SUCCESSFULLY"
-      );
     } catch (err: any) {
-      console.error("❌ [POST-CREATION DEBUG] Cloud function error:", err);
+      console.error("❌ Cloud function error:", err);
       let errorText = "An unknown error occurred.";
 
       if (err.code === "permission-denied") {
@@ -1535,34 +1349,32 @@ const AccReg: React.FC = () => {
       setShowPasswordInfo(true);
     } finally {
       setIsProcessing(false);
-      console.log("🔚 [POST-CREATION DEBUG] handleCreateAccount completed");
     }
+  };
+
+  const handleAdminClick = () => {
+    navigate("/EditModal");
   };
 
   return (
     <div className="">
       {/* TOP HEADER - Account Registry Header */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        {/* Account Registry Title - Left Side */}
         <div className="flex items-center space-x-4">
           <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
             Account Registry
           </h1>
         </div>
 
-        {/* Empty Center for Balance */}
         <div className="flex-1"></div>
 
-        {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* User Info */}
           <div className="flex items-center space-x-3">
             <div className="text-right">
               <p className="text-sm font-medium">{userSession?.email}</p>
               <p className="text-xs text-gray-300">Role: {userSession?.role}</p>
             </div>
 
-            {/* ADMIN BUTTON: Navigation Handler */}
             <div
               className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
               onClick={handleAdminClick}
@@ -1591,10 +1403,6 @@ const AccReg: React.FC = () => {
               className="w-64 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:border-emerald-700"
             />
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <style>{`
-            .bg-teader { background-color: #141d21; }
-            .bg-object { background-color: #054a5c; }
-            `}</style>
           </div>
           <button
             onClick={() => setShowExportModal(true)}
@@ -1683,8 +1491,7 @@ const AccReg: React.FC = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                   House Address
-                </th>{" "}
-                {/* CHANGED: Password to House Address */}
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                   Status
                 </th>
@@ -1726,8 +1533,7 @@ const AccReg: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {member.address || "N/A"}
-                    </td>{" "}
-                    {/* CHANGED: Password to House Address */}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[member.status]}`}
@@ -1946,7 +1752,7 @@ const AccReg: React.FC = () => {
                     value={status}
                     onChange={setStatus}
                     options={getStatusOptions(status)}
-                    disabled={isProcessing || status === "Inactive"} // ✅ ADDED: Disable if Inactive
+                    disabled={isProcessing || status === "Inactive" || status === "Active"} // ✅ DISABLED for both Inactive AND Active
                   />
                 )}
 
@@ -1988,15 +1794,17 @@ const AccReg: React.FC = () => {
                 </p>
               )}
 
-              {/* ✅ STATUS RESTRICTION WARNING */}
-              {isEditing && status === "Inactive" && (
+              {/* ✅ STATUS RESTRICTION WARNINGS */}
+              {isEditing && (status === "Inactive" || status === "Active") && (
                 <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-yellow-800 font-medium">
                     ⚠️ Status Restriction
                   </p>
                   <p className="text-xs text-yellow-700 mt-1">
-                    This account is currently <strong>Inactive</strong>. Status cannot be changed manually. 
-                    The member must make a payment to become Active again through the Contribution system.
+                    {status === "Inactive" 
+                      ? "This account is currently Inactive. Status cannot be changed manually. The member must make a payment to become Active again through the Contribution system."
+                      : "This account is currently Active. Status changes are controlled by the payment system based on monthly contributions."
+                    }
                   </p>
                 </div>
               )}

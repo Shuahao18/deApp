@@ -572,7 +572,7 @@ const AdminLogin: React.FC = () => {
               </span>
               <input
                 type="email"
-                placeholder="Username"
+                placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 bg-white text-gray-800 placeholder-gray-500 transition-all shadow-sm"
@@ -586,7 +586,7 @@ const AdminLogin: React.FC = () => {
               </span>
               <input
                 type={showPass ? "text" : "password"}
-                placeholder="PIN no."
+                placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full pl-10 pr-10 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 bg-white text-gray-800 placeholder-gray-500 transition-all shadow-sm"

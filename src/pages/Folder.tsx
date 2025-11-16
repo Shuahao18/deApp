@@ -4,7 +4,6 @@ import React, {
   useRef,
   useEffect,
   useMemo,
-  useCallback,
 } from "react";
 import {
   Download,
@@ -41,6 +40,7 @@ import {
   orderBy,
   limit,
   getCountFromServer,
+  startAfter, // DAGDAG ITO
 } from "firebase/firestore";
 import { db } from "../Firebase";
 import {
@@ -54,9 +54,9 @@ import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
 // --- Performance Optimization Constants ---
-const DEBOUNCE_DELAY = 300; // ms for search debounce
-const INITIAL_LOAD_LIMIT = 50; // Initial files to load
-const BATCH_SIZE = 25; // Files to load per batch
+const DEBOUNCE_DELAY = 300;
+const INITIAL_LOAD_LIMIT = 50;
+const BATCH_SIZE = 25;
 
 // --- Custom Alert Component for Electron ---
 const CustomAlert: React.FC<{
@@ -260,6 +260,25 @@ interface FolderDocument {
   fileCount: number;
 }
 
+interface MemberDocument {
+  id: string;
+  accNo: string;
+  memberName: string;
+  files: SentFile[];
+  totalFiles: number;
+  lastSent: string;
+}
+
+interface SentFile {
+  id: string;
+  name: string;
+  description: string;
+  sentAt: string;
+  size: number;
+  url: string;
+  storagePath: string;
+}
+
 // --- Dropdown Component ---
 const Dropdown: React.FC<{
   label: React.ReactNode;
@@ -306,12 +325,18 @@ const Pagination: React.FC<{
   onPageChange: (page: number) => void;
   itemsPerPage: number;
   onItemsPerPageChange: (items: number) => void;
+  totalItems: number;
+  showingStart: number;
+  showingEnd: number;
 }> = ({
   currentPage,
   totalPages,
   onPageChange,
   itemsPerPage,
   onItemsPerPageChange,
+  totalItems,
+  showingStart,
+  showingEnd,
 }) => {
   const getPageNumbers = () => {
     const pages = [];
@@ -345,7 +370,6 @@ const Pagination: React.FC<{
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 px-4 py-3 bg-white border rounded-lg">
-      {/* Items per page selector */}
       <div className="flex items-center gap-2">
         <span className="text-sm text-gray-600">Show</span>
         <select
@@ -361,7 +385,10 @@ const Pagination: React.FC<{
         <span className="text-sm text-gray-600">items per page</span>
       </div>
 
-      {/* Page navigation */}
+      <div className="text-sm text-gray-600">
+        Showing {showingStart} to {showingEnd} of {totalItems} items
+      </div>
+
       <div className="flex items-center gap-2">
         <button
           onClick={() => onPageChange(currentPage - 1)}
@@ -399,7 +426,6 @@ const Pagination: React.FC<{
         </button>
       </div>
 
-      {/* Page info */}
       <div className="text-sm text-gray-600">
         Page {currentPage} of {totalPages}
       </div>
@@ -411,18 +437,17 @@ const Pagination: React.FC<{
 const CreateFolderModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (folderName: string) => void;
-}> = ({ isOpen, onClose, onCreate }) => {
+  onCreate: (folderName: string) => Promise<void>;
+  onSuccess?: () => void;
+}> = ({ isOpen, onClose, onCreate, onSuccess }) => {
   const [folderName, setFolderName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Custom alert hook
-  const { showAlert, hideAlert, alertState } = useCustomAlert();
-
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
+      setFolderName("");
     }
   }, [isOpen]);
 
@@ -433,77 +458,72 @@ const CreateFolderModal: React.FC<{
       try {
         await onCreate(folderName.trim());
         setFolderName("");
-        showAlert("Success", "Folder created successfully!");
         onClose();
+        if (onSuccess) {
+          onSuccess();
+        }
       } catch (error) {
-        showAlert("Error", "Failed to create folder. Please try again.");
+        console.error("Failed to create folder:", error);
       } finally {
         setIsCreating(false);
       }
-    } else {
-      showAlert("Error", "Please enter a folder name.");
+    }
+  };
+
+  const handleClose = () => {
+    if (!isCreating) {
+      setFolderName("");
+      onClose();
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg p-6 w-96">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Create New Folder</h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg p-6 w-96">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Create New Folder</h2>
+          <button
+            onClick={handleClose}
+            className="text-gray-500 hover:text-gray-700 transition-colors"
+            disabled={isCreating}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <input
+            ref={inputRef}
+            type="text"
+            value={folderName}
+            onChange={(e) => setFolderName(e.target.value)}
+            placeholder="Enter folder name"
+            className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            maxLength={50}
+            disabled={isCreating}
+          />
+          <div className="flex justify-end gap-2">
             <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               disabled={isCreating}
             >
-              <X className="w-5 h-5" />
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!folderName.trim() || isCreating}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isCreating ? "Creating..." : "Create"}
             </button>
           </div>
-          <form onSubmit={handleSubmit}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={folderName}
-              onChange={(e) => setFolderName(e.target.value)}
-              placeholder="Enter folder name"
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              maxLength={50}
-              disabled={isCreating}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setFolderName("");
-                  onClose();
-                }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                disabled={isCreating}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!folderName.trim() || isCreating}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isCreating ? "Creating..." : "Create"}
-              </button>
-            </div>
-          </form>
-        </div>
+        </form>
       </div>
-
-      <CustomAlert
-        show={alertState.show}
-        title={alertState.title}
-        message={alertState.message}
-        onClose={hideAlert}
-      />
-    </>
+    </div>
   );
 };
 
@@ -511,14 +531,13 @@ const CreateFolderModal: React.FC<{
 const RenameFolderModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  onRename: (newName: string) => void;
+  onRename: (newName: string) => Promise<void>;
   currentName: string;
 }> = ({ isOpen, onClose, onRename, currentName }) => {
   const [folderName, setFolderName] = useState(currentName);
   const [isRenaming, setIsRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Custom alert hook
   const { showAlert, hideAlert, alertState } = useCustomAlert();
 
   useEffect(() => {
@@ -534,8 +553,8 @@ const RenameFolderModal: React.FC<{
       setIsRenaming(true);
       try {
         await onRename(folderName.trim());
-        showAlert("Success", "Folder renamed successfully!");
         onClose();
+        showAlert("Success", "Folder renamed successfully!");
       } catch (error) {
         showAlert("Error", "Failed to rename folder. Please try again.");
       } finally {
@@ -548,6 +567,13 @@ const RenameFolderModal: React.FC<{
     }
   };
 
+  const handleClose = () => {
+    if (!isRenaming) {
+      setFolderName(currentName);
+      onClose();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -557,7 +583,7 @@ const RenameFolderModal: React.FC<{
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Rename Folder</h2>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-500 hover:text-gray-700 transition-colors"
               disabled={isRenaming}
             >
@@ -578,7 +604,7 @@ const RenameFolderModal: React.FC<{
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 disabled={isRenaming}
               >
@@ -611,264 +637,6 @@ const RenameFolderModal: React.FC<{
   );
 };
 
-// --- Send to Member Modal ---
-const SendToMemberModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onSend: (
-    file: File,
-    description: string,
-    accNo: string,
-    memberName: string
-  ) => void;
-}> = ({ isOpen, onClose, onSend }) => {
-  const [file, setFile] = useState<File | null>(null);
-  const [description, setDescription] = useState("");
-  const [accNo, setAccNo] = useState("");
-  const [memberName, setMemberName] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [memberError, setMemberError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Custom alert hook
-  const { showAlert, hideAlert, alertState } = useCustomAlert();
-
-  useEffect(() => {
-    if (isOpen) {
-      setFile(null);
-      setDescription("");
-      setAccNo("");
-      setMemberName("");
-      setMemberError("");
-    }
-  }, [isOpen]);
-
-  const fetchMemberDetails = async (accNo: string) => {
-    if (accNo.trim().length === 0) {
-      setMemberName("");
-      setMemberError("");
-      return;
-    }
-
-    setIsSearching(true);
-    setMemberError("");
-    try {
-      const membersRef = collection(db, "members");
-      const q = query(
-        membersRef,
-        where("accNo", "==", accNo.trim()),
-        where("status", "!=", "Deleted")
-      );
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        setMemberError(
-          `Account No. ${accNo} not found or is inactive/deleted.`
-        );
-        setMemberName("");
-      } else {
-        const memberData = querySnapshot.docs[0].data();
-        const fullName = [
-          memberData.surname,
-          memberData.firstName,
-          memberData.middleName,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        setMemberName(fullName || "N/A");
-        setMemberError("");
-      }
-    } catch (error) {
-      console.error("Error searching member:", error);
-      setMemberError("An error occurred during lookup.");
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Debounced member search
-  const debouncedAccNo = useDebounce(accNo, 500);
-
-  useEffect(() => {
-    if (debouncedAccNo.trim().length > 0) {
-      fetchMemberDetails(debouncedAccNo);
-    } else {
-      setMemberName("");
-      setMemberError("");
-    }
-  }, [debouncedAccNo]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) {
-      showAlert("Error", "Please select a file to send.");
-      return;
-    }
-    if (memberError || !memberName || isSearching) {
-      showAlert(
-        "Error",
-        "Please enter a valid Account No. and ensure the Member Name is found."
-      );
-      return;
-    }
-    if (!description.trim()) {
-      showAlert("Error", "Please enter a description for the document.");
-      return;
-    }
-
-    setIsSending(true);
-    try {
-      await onSend(file, description, accNo, memberName);
-      showAlert(
-        "Success",
-        `Document successfully sent to ${memberName} (${accNo})`
-      );
-      onClose();
-    } catch (error) {
-      showAlert("Error", "Failed to send document. Please try again.");
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg p-6 w-96 max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Send Document to Member</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-              disabled={isSending}
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <form onSubmit={handleSubmit}>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Account Number *
-                </label>
-                <input
-                  type="text"
-                  value={accNo}
-                  onChange={(e) => setAccNo(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter member's account number"
-                  required
-                  disabled={isSending}
-                />
-                {memberError && (
-                  <p className="text-xs text-red-600 mt-1">{memberError}</p>
-                )}
-                {isSearching && (
-                  <p className="text-xs text-blue-600 mt-1">
-                    Searching for member...
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Member Name
-                </label>
-                <input
-                  type="text"
-                  value={memberName}
-                  readOnly
-                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder={memberName || "Member name will appear here"}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Document Description *
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter document description"
-                  rows={3}
-                  required
-                  disabled={isSending}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Select File
-                </label>
-                <div
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-gray-400 transition-colors"
-                  onClick={() => !isSending && fileInputRef.current?.click()}
-                >
-                  {file ? (
-                    <p className="text-sm text-green-600">
-                      Selected: {file.name}
-                    </p>
-                  ) : (
-                    <p className="text-gray-500">
-                      Click to select file or drag and drop
-                    </p>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.jfif"
-                    disabled={isSending}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                disabled={isSending}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  !file ||
-                  !description.trim() ||
-                  !memberName ||
-                  !!memberError ||
-                  isSearching ||
-                  isSending
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                {isSending && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isSending ? "Sending..." : "Send Document"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <CustomAlert
-        show={alertState.show}
-        title={alertState.title}
-        message={alertState.message}
-        onClose={hideAlert}
-      />
-    </>
-  );
-};
-
 // --- Send Multiple Files to Member Modal ---
 const SendMultipleFilesModal: React.FC<{
   isOpen: boolean;
@@ -878,9 +646,10 @@ const SendMultipleFilesModal: React.FC<{
     description: string,
     accNo: string,
     memberName: string
-  ) => void;
+  ) => Promise<void>;
   availableFiles: FileDocument[];
-}> = ({ isOpen, onClose, onSend, availableFiles }) => {
+  onSuccess?: () => void;
+}> = ({ isOpen, onClose, onSend, availableFiles, onSuccess }) => {
   const [selectedFiles, setSelectedFiles] = useState<FileDocument[]>([]);
   const [description, setDescription] = useState("");
   const [accNo, setAccNo] = useState("");
@@ -890,13 +659,8 @@ const SendMultipleFilesModal: React.FC<{
   const [memberError, setMemberError] = useState("");
   const [fileSearchTerm, setFileSearchTerm] = useState("");
 
-  // Custom alert hook
-  const { showAlert, hideAlert, alertState } = useCustomAlert();
-
-  // Debounced search for files
   const debouncedFileSearch = useDebounce(fileSearchTerm, 300);
 
-  // Filter files based on search - OPTIMIZED: Memoized with debounced search
   const filteredFiles = useMemo(() => {
     if (!debouncedFileSearch.trim()) return availableFiles;
 
@@ -986,7 +750,6 @@ const SendMultipleFilesModal: React.FC<{
     }
   };
 
-  // Debounced member search
   const debouncedAccNo = useDebounce(accNo, 500);
 
   useEffect(() => {
@@ -1012,40 +775,32 @@ const SendMultipleFilesModal: React.FC<{
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedFiles.length === 0) {
-      showAlert("Error", "Please select at least one file to send.");
       return;
     }
     if (memberError || !memberName || isSearching) {
-      showAlert(
-        "Error",
-        "Please enter a valid Account No. and ensure the Member Name is found."
-      );
       return;
     }
     if (!description.trim()) {
-      showAlert("Error", "Please enter a description for the documents.");
       return;
     }
 
     setIsSending(true);
     try {
       await onSend(selectedFiles, description, accNo, memberName);
-      if (selectedFiles.length === 1) {
-        showAlert(
-          "Success",
-          `Document successfully sent to ${memberName} (${accNo})`
-        );
-      } else {
-        showAlert(
-          "Success",
-          `Successfully sent ${selectedFiles.length} files to ${memberName} (${accNo})`
-        );
-      }
       onClose();
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (error) {
-      showAlert("Error", "Failed to send files. Please try again.");
+      console.error("Failed to send files:", error);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (!isSending) {
+      onClose();
     }
   };
 
@@ -1054,269 +809,512 @@ const SendMultipleFilesModal: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg p-6 w-[90vw] max-w-4xl max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Send to Member</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-              disabled={isSending}
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left Column - Member Information */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Account Number *
-                  </label>
-                  <input
-                    type="text"
-                    value={accNo}
-                    onChange={(e) => setAccNo(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter member's account number"
-                    required
-                    disabled={isSending}
-                  />
-                  {memberError && (
-                    <p className="text-xs text-red-600 mt-1">{memberError}</p>
-                  )}
-                  {isSearching && (
-                    <p className="text-xs text-blue-600 mt-1">
-                      Searching for member...
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg p-6 w-[90vw] max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Send to Member</h2>
+          <button
+            onClick={handleClose}
+            className="text-gray-500 hover:text-gray-700 transition-colors"
+            disabled={isSending}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Account Number *
+                </label>
+                <input
+                  type="text"
+                  value={accNo}
+                  onChange={(e) => setAccNo(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter member's account number"
+                  required
+                  disabled={isSending}
+                />
+                {memberError && (
+                  <p className="text-xs text-red-600 mt-1">{memberError}</p>
+                )}
+                {isSearching && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Searching for member...
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Member Name
+                </label>
+                <input
+                  type="text"
+                  value={memberName}
+                  readOnly
+                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder={memberName || "Member name will appear here"}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Document Description *
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter description for all selected documents"
+                  rows={4}
+                  required
+                  disabled={isSending}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This description will be applied to all selected documents.
+                </p>
+              </div>
+
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <h3 className="font-medium mb-2">Selected Files Summary</h3>
+                {selectedFiles.length === 0 ? (
+                  <p className="text-sm text-gray-500">No files selected</p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm">
+                      <span className="font-medium">
+                        {selectedFiles.length}
+                      </span>{" "}
+                      file(s) selected
                     </p>
-                  )}
-                </div>
+                    <p className="text-sm">
+                      Total size:{" "}
+                      <span className="font-medium">
+                        {formatFileSize(totalSize)}
+                      </span>
+                    </p>
+                    <div className="max-h-32 overflow-y-auto">
+                      {selectedFiles.map((file, index) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between text-xs py-1"
+                        >
+                          <span className="truncate flex-1">{file.name}</span>
+                          <span className="text-gray-500 ml-2">
+                            {formatFileSize(file.size)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Member Name
-                  </label>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Select Files to Send ({availableFiles.length} files
+                  available)
+                </label>
+
+                <div className="mb-3">
                   <input
                     type="text"
-                    value={memberName}
-                    readOnly
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder={memberName || "Member name will appear here"}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Document Description *
-                  </label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    value={fileSearchTerm}
+                    onChange={(e) => setFileSearchTerm(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter description for all selected documents"
-                    rows={4}
-                    required
+                    placeholder="Search files by name, description, member, or account number..."
                     disabled={isSending}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    This description will be applied to all selected documents.
+                    {filteredFiles.length} files match your search.
                   </p>
                 </div>
 
-                {/* Selected Files Summary */}
-                <div className="border rounded-lg p-4 bg-gray-50">
-                  <h3 className="font-medium mb-2">Selected Files Summary</h3>
-                  {selectedFiles.length === 0 ? (
-                    <p className="text-sm text-gray-500">No files selected</p>
+                <div className="border rounded-lg max-h-96 overflow-y-auto">
+                  {filteredFiles.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      {fileSearchTerm
+                        ? "No files match your search"
+                        : "No files available"}
+                    </div>
                   ) : (
-                    <div className="space-y-2">
-                      <p className="text-sm">
-                        <span className="font-medium">
-                          {selectedFiles.length}
-                        </span>{" "}
-                        file(s) selected
-                      </p>
-                      <p className="text-sm">
-                        Total size:{" "}
-                        <span className="font-medium">
-                          {formatFileSize(totalSize)}
-                        </span>
-                      </p>
-                      <div className="max-h-32 overflow-y-auto">
-                        {selectedFiles.map((file, index) => (
+                    <div className="divide-y">
+                      {filteredFiles.map((file) => {
+                        const isSelected = selectedFiles.some(
+                          (f) => f.id === file.id
+                        );
+                        return (
                           <div
                             key={file.id}
-                            className="flex items-center justify-between text-xs py-1"
+                            className={`p-3 cursor-pointer transition-colors ${
+                              isSelected
+                                ? "bg-blue-50 border-blue-200"
+                                : "hover:bg-gray-50"
+                            }`}
+                            onClick={() =>
+                              !isSending && toggleFileSelection(file)
+                            }
                           >
-                            <span className="truncate flex-1">{file.name}</span>
-                            <span className="text-gray-500 ml-2">
-                              {formatFileSize(file.size)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Column - File Selection */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Select Files to Send ({availableFiles.length} files
-                    available)
-                  </label>
-
-                  {/* Search Files - OPTIMIZED: Debounced search */}
-                  <div className="mb-3">
-                    <input
-                      type="text"
-                      value={fileSearchTerm}
-                      onChange={(e) => setFileSearchTerm(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Search files by name, description, member, or account number..."
-                      disabled={isSending}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {filteredFiles.length} files match your search.
-                    </p>
-                  </div>
-
-                  {/* Files List */}
-                  <div className="border rounded-lg max-h-96 overflow-y-auto">
-                    {filteredFiles.length === 0 ? (
-                      <div className="p-4 text-center text-gray-500">
-                        {fileSearchTerm
-                          ? "No files match your search"
-                          : "No files available"}
-                      </div>
-                    ) : (
-                      <div className="divide-y">
-                        {filteredFiles.map((file) => {
-                          const isSelected = selectedFiles.some(
-                            (f) => f.id === file.id
-                          );
-                          return (
-                            <div
-                              key={file.id}
-                              className={`p-3 cursor-pointer transition-colors ${
-                                isSelected
-                                  ? "bg-blue-50 border-blue-200"
-                                  : "hover:bg-gray-50"
-                              }`}
-                              onClick={() =>
-                                !isSending && toggleFileSelection(file)
-                              }
-                            >
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() =>
-                                    !isSending && toggleFileSelection(file)
-                                  }
-                                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                  onClick={(e) => e.stopPropagation()}
-                                  disabled={isSending}
-                                />
-                                <File
-                                  className={`w-4 h-4 ${getFileIconColor(file.name)}`}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">
-                                    {file.name}
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() =>
+                                  !isSending && toggleFileSelection(file)
+                                }
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                onClick={(e) => e.stopPropagation()}
+                                disabled={isSending}
+                              />
+                              <File
+                                className={`w-4 h-4 ${getFileIconColor(file.name)}`}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">
+                                  {file.name}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {formatFileSize(file.size)} •{" "}
+                                  {file.lastAccess}
+                                </p>
+                                {file.description && (
+                                  <p className="text-xs text-gray-600 mt-1 truncate">
+                                    {file.description}
                                   </p>
-                                  <p className="text-xs text-gray-500">
-                                    {formatFileSize(file.size)} •{" "}
-                                    {file.lastAccess}
+                                )}
+                                {(file.memberName || file.accNo) && (
+                                  <p className="text-xs text-blue-600 mt-1">
+                                    {file.memberName}{" "}
+                                    {file.accNo && `(${file.accNo})`}
                                   </p>
-                                  {file.description && (
-                                    <p className="text-xs text-gray-600 mt-1 truncate">
-                                      {file.description}
-                                    </p>
-                                  )}
-                                  {(file.memberName || file.accNo) && (
-                                    <p className="text-xs text-blue-600 mt-1">
-                                      {file.memberName}{" "}
-                                      {file.accNo && `(${file.accNo})`}
-                                    </p>
-                                  )}
-                                </div>
+                                )}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Selection Actions */}
-                  {filteredFiles.length > 0 && (
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          !isSending && setSelectedFiles(filteredFiles)
-                        }
-                        className="text-xs px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                        disabled={isSending}
-                      >
-                        Select All ({filteredFiles.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => !isSending && setSelectedFiles([])}
-                        className="text-xs px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                        disabled={isSending}
-                      >
-                        Clear All
-                      </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
+
+                {filteredFiles.length > 0 && (
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !isSending && setSelectedFiles(filteredFiles)
+                      }
+                      className="text-xs px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      disabled={isSending}
+                    >
+                      Select All ({filteredFiles.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => !isSending && setSelectedFiles([])}
+                      className="text-xs px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      disabled={isSending}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+          </div>
 
-            <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                disabled={isSending}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  selectedFiles.length === 0 ||
-                  !description.trim() ||
-                  !memberName ||
-                  !!memberError ||
-                  isSearching ||
-                  isSending
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                {isSending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Send {selectedFiles.length} File
-                {selectedFiles.length !== 1 ? "s" : ""}
-              </button>
+          <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              disabled={isSending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={
+                selectedFiles.length === 0 ||
+                !description.trim() ||
+                !memberName ||
+                !!memberError ||
+                isSearching ||
+                isSending
+              }
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {isSending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Send {selectedFiles.length} File
+              {selectedFiles.length !== 1 ? "s" : ""}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// --- Sent Documents View Component ---
+const SentDocumentsView: React.FC<{
+  members: MemberDocument[];
+  loading: boolean;
+  onMemberClick: (member: MemberDocument) => void;
+  onBack: () => void;
+  selectedMember: MemberDocument | null;
+  onDeleteFile: (fileId: string, fileName: string, storagePath: string) => void;
+  onDeleteMember: (memberId: string, memberName: string, accNo: string) => void;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  itemsPerPage: number;
+  onItemsPerPageChange: (items: number) => void;
+  totalItems: number;
+  showingStart: number;
+  showingEnd: number;
+  totalPages: number;
+}> = ({ 
+  members, 
+  loading, 
+  onMemberClick, 
+  onBack, 
+  selectedMember, 
+  onDeleteFile,
+  onDeleteMember,
+  currentPage,
+  onPageChange,
+  itemsPerPage,
+  onItemsPerPageChange,
+  totalItems,
+  showingStart,
+  showingEnd,
+  totalPages
+}) => {
+  const [fileMenuIndex, setFileMenuIndex] = useState<number | null>(null);
+  const [memberMenuIndex, setMemberMenuIndex] = useState<number | null>(null);
+  const fileMenuRef = useRef<HTMLDivElement>(null);
+  const memberMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (fileMenuRef.current && !fileMenuRef.current.contains(event.target as Node)) {
+        setFileMenuIndex(null);
+      }
+      if (memberMenuRef.current && !memberMenuRef.current.contains(event.target as Node)) {
+        setMemberMenuIndex(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleFileMenu = (index: number) => {
+    setFileMenuIndex(fileMenuIndex === index ? null : index);
+  };
+
+  const toggleMemberMenu = (index: number) => {
+    setMemberMenuIndex(memberMenuIndex === index ? null : index);
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 KB";
+    const k = 1024;
+    if (bytes < k) return `${bytes} Bytes`;
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    if (i === 1) return (bytes / k).toFixed(2) + " KB";
+    const sizes = ["KB", "MB", "GB"];
+    if (i > sizes.length) return "Very Large";
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i - 1];
+  };
+
+  const paginatedMembers = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return members.slice(startIndex, endIndex);
+  }, [members, currentPage, itemsPerPage]);
+
+  if (loading) {
+    return <LoadingSpinner text="Loading sent documents..." />;
+  }
+
+  if (selectedMember) {
+    return (
+      <div className="mt-4 pt-4">
+        <div className="bg-white rounded-lg border">
+          {selectedMember.files.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              No files sent to this member.
             </div>
-          </form>
+          ) : (
+            <div className="divide-y">
+              {selectedMember.files.map((file, index) => (
+                <div key={file.id} className="p-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <File className="w-4 h-4 text-blue-500" />
+                        <span className="font-medium">{file.name}</span>
+                        <span className="text-sm text-gray-500">
+                          ({formatFileSize(file.size)})
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-1">{file.description}</p>
+                      <p className="text-xs text-gray-500">
+                        Sent on: {file.sentAt}
+                      </p>
+                    </div>
+                    <div className="relative" ref={fileMenuIndex === index ? fileMenuRef : null}>
+                      <MoreVertical
+                        className="w-4 h-4 cursor-pointer text-gray-400 hover:text-gray-600"
+                        onClick={() => toggleFileMenu(index)}
+                      />
+                      {fileMenuIndex === index && (
+                        <div className="absolute right-0 mt-2 bg-white border rounded shadow-lg z-10 p-2 min-w-[120px]">
+                          <button
+                            onClick={() => {
+                              const link = document.createElement("a");
+                              link.href = file.url;
+                              link.download = file.name;
+                              link.target = "_blank";
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              setFileMenuIndex(null);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+                          >
+                            <Download className="w-4 h-4" /> Download
+                          </button>
+                          <button
+                            onClick={() => {
+                              onDeleteFile(file.id, file.name, file.storagePath);
+                              setFileMenuIndex(null);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-red-600 flex items-center gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Members List
+          </button>
         </div>
       </div>
+    );
+  }
 
-      <CustomAlert
-        show={alertState.show}
-        title={alertState.title}
-        message={alertState.message}
-        onClose={hideAlert}
-      />
-    </>
+  return (
+    <div className="mt-4 pt-4">
+      <div className="grid grid-cols-12 font-semibold text-sm text-gray-700 border-b pb-2">
+        <div className="col-span-5">Member</div>
+        <div className="col-span-2">Total Files</div>
+        <div className="col-span-4">Last Sent</div>
+        <div className="col-span-1 text-right">Actions</div>
+      </div>
+
+      {paginatedMembers.length === 0 ? (
+        <div className="py-8 text-center text-gray-500 text-lg">
+          No documents have been sent to members yet.
+        </div>
+      ) : (
+        <>
+          {paginatedMembers.map((member, index) => (
+            <div
+              key={member.accNo}
+              className="grid grid-cols-12 items-center text-sm text-gray-600 py-3 border-b hover:bg-gray-50 transition-colors"
+            >
+              <div 
+                className="col-span-5 cursor-pointer"
+                onClick={() => onMemberClick(member)}
+              >
+                <div className="flex items-center gap-3">
+                  <UserCircle className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <div className="font-medium text-gray-900">
+                      {member.memberName}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Account: {member.accNo}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div 
+                className="col-span-2 cursor-pointer"
+                onClick={() => onMemberClick(member)}
+              >
+                <span className="font-medium">{member.totalFiles} files</span>
+              </div>
+              <div 
+                className="col-span-4 cursor-pointer"
+                onClick={() => onMemberClick(member)}
+              >
+                <span className="text-gray-600">{member.lastSent}</span>
+              </div>
+              <div className="col-span-1 text-right relative" ref={memberMenuIndex === index ? memberMenuRef : null}>
+                <MoreVertical
+                  className="w-4 h-4 cursor-pointer text-gray-400 hover:text-gray-600 ml-auto"
+                  onClick={() => toggleMemberMenu(index)}
+                />
+                {memberMenuIndex === index && (
+                  <div className="absolute right-0 mt-2 bg-white border rounded shadow-lg z-10 p-2 min-w-[120px]">
+                    <button
+                      onClick={() => {
+                        onMemberClick(member);
+                        setMemberMenuIndex(null);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-800 flex items-center gap-2"
+                    >
+                      <File className="w-4 h-4" /> View Files
+                    </button>
+                    <button
+                      onClick={() => {
+                        onDeleteMember(member.id, member.memberName, member.accNo);
+                        setMemberMenuIndex(null);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-red-600 flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete Member
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {members.length > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={onPageChange}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={onItemsPerPageChange}
+              totalItems={totalItems}
+              showingStart={showingStart}
+              showingEnd={showingEnd}
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 };
 
@@ -1333,27 +1331,28 @@ const FoldersPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<FileDocument[]>([]);
   const [folders, setFolders] = useState<FolderDocument[]>([]);
+  const [sentDocuments, setSentDocuments] = useState<MemberDocument[]>([]);
+  const [sentDocumentsLoading, setSentDocumentsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const [hasMoreFiles, setHasMoreFiles] = useState(true);
   const [filesLastDoc, setFilesLastDoc] = useState<any>(null);
 
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  // Modal states
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
   const [isRenameFolderModalOpen, setIsRenameFolderModalOpen] = useState(false);
-  const [isSendToMemberModalOpen, setIsSendToMemberModalOpen] = useState(false);
   const [isSendMultipleModalOpen, setIsSendMultipleModalOpen] = useState(false);
   const [folderToRename, setFolderToRename] = useState<FolderDocument | null>(
     null
   );
   const [filesForSending, setFilesForSending] = useState<FileDocument[]>([]);
+  const [selectedMember, setSelectedMember] = useState<MemberDocument | null>(null);
 
-  // Custom hooks for alerts and confirms
+  const [viewMode, setViewMode] = useState<"folders" | "files" | "sent-documents">("folders");
+
   const { showAlert, hideAlert, alertState } = useCustomAlert();
   const {
     showConfirm,
@@ -1363,11 +1362,8 @@ const FoldersPage: React.FC = () => {
     confirmState,
   } = useCustomConfirm();
 
-  // Start with 'All Folder' for a general view
   const [selectedFolderId, setSelectedFolderId] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"folders" | "files">("folders");
 
-  // Filters & Sorting State
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [fileTypeFilter, setFileTypeFilter] = useState<FileExtension>("all");
   const [sortBy, setSortBy] = useState<SortKey>("name");
@@ -1376,18 +1372,14 @@ const FoldersPage: React.FC = () => {
   const [fileSortDirection, setFileSortDirection] =
     useState<SortDirection>("asc");
 
-  // Debounced search for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, DEBOUNCE_DELAY);
 
-  // Navigation hook
   const navigate = useNavigate();
 
-  // Navigation handlers
   const handleAdminClick = () => {
     navigate("/EditModal");
   };
 
-  // --- Utility Functions ---
   const getFileExtension = (filename: string): FileExtension => {
     const extension = filename.split(".").pop()?.toLowerCase() || "";
     if (["pdf"].includes(extension)) return "pdf";
@@ -1424,17 +1416,155 @@ const FoldersPage: React.FC = () => {
 
   // --- File Download Handler ---
   const handleFileDownload = (file: FileDocument) => {
-    // Create a temporary anchor element to trigger download
     const link = document.createElement("a");
     link.href = file.url;
     link.download = file.name;
-    link.target = "_blank"; // Open in new tab to prevent app replacement
+    link.target = "_blank";
     link.rel = "noopener noreferrer";
 
-    // Append to body, click, and remove
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // --- Delete Member Function ---
+  const handleDeleteMember = async (memberId: string, memberName: string, accNo: string) => {
+    showConfirm(
+      "Confirm Member Deletion",
+      `Are you sure you want to delete ALL sent documents for member: ${memberName} (${accNo})?\n\nThis will permanently delete all files sent to this member.\n\nThis action cannot be undone.`,
+      async () => {
+        try {
+          const memberDocsRef = collection(db, "member-documents");
+          const q = query(memberDocsRef, where("accNo", "==", accNo));
+          const querySnapshot = await getDocs(q);
+
+          const storage = getStorage();
+          const deletePromises = querySnapshot.docs.map(async (doc) => {
+            const fileData = doc.data();
+            
+            if (fileData.storagePath) {
+              try {
+                const fileRef = ref(storage, fileData.storagePath);
+                await deleteObject(fileRef);
+              } catch (storageError) {
+                console.warn(`Could not delete file from storage: ${fileData.name}`, storageError);
+              }
+            }
+            
+            return deleteDoc(doc.ref);
+          });
+
+          await Promise.all(deletePromises);
+
+          setSentDocuments(prev => prev.filter(member => member.accNo !== accNo));
+          
+          showAlert("Success", `All documents for ${memberName} (${accNo}) have been deleted successfully!`);
+        } catch (error) {
+          console.error("Error deleting member documents:", error);
+          showAlert("Error", "Failed to delete member documents. Please check permissions.");
+        }
+      }
+    );
+  };
+
+  // --- Fetch Sent Documents ---
+  const fetchSentDocuments = async () => {
+    try {
+      setSentDocumentsLoading(true);
+      
+      const memberDocsRef = collection(db, "member-documents");
+      const querySnapshot = await getDocs(memberDocsRef);
+      
+      const memberMap = new Map<string, MemberDocument>();
+      
+      querySnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const memberKey = data.accNo;
+        
+        if (!memberMap.has(memberKey)) {
+          memberMap.set(memberKey, {
+            id: doc.id,
+            accNo: data.accNo,
+            memberName: data.memberName,
+            files: [],
+            totalFiles: 0,
+            lastSent: data.sentAt || data.lastAccess
+          });
+        }
+        
+        const member = memberMap.get(memberKey)!;
+        member.files.push({
+          id: doc.id,
+          name: data.name,
+          description: data.description,
+          sentAt: data.sentAt || data.lastAccess,
+          size: data.size,
+          url: data.url,
+          storagePath: data.storagePath
+        });
+      });
+      
+      const membersArray = Array.from(memberMap.values()).map(member => ({
+        ...member,
+        totalFiles: member.files.length,
+        lastSent: member.files.reduce((latest, file) => 
+          new Date(file.sentAt) > new Date(latest) ? file.sentAt : latest, 
+          member.files[0]?.sentAt || ""
+        )
+      }));
+      
+      membersArray.sort((a, b) => new Date(b.lastSent).getTime() - new Date(a.lastSent).getTime());
+      
+      setSentDocuments(membersArray);
+    } catch (error) {
+      console.error("Error fetching sent documents:", error);
+      showAlert("Error", "Failed to load sent documents.");
+    } finally {
+      setSentDocumentsLoading(false);
+    }
+  };
+
+  // --- Delete Sent File ---
+  const handleDeleteSentFile = async (fileId: string, fileName: string, storagePath: string) => {
+    showConfirm(
+      "Confirm File Deletion",
+      `Are you sure you want to delete the sent file: "${fileName}"?\n\nThis action cannot be undone.`,
+      async () => {
+        try {
+          await deleteDoc(doc(db, "member-documents", fileId));
+          
+          const storage = getStorage();
+          try {
+            const fileRef = ref(storage, storagePath);
+            await deleteObject(fileRef);
+          } catch (storageError) {
+            console.warn(`Storage deletion warning for ${fileName}:`, storageError);
+          }
+          
+          setSentDocuments(prev => 
+            prev.map(member => ({
+              ...member,
+              files: member.files.filter(file => file.id !== fileId),
+              totalFiles: member.files.filter(file => file.id !== fileId).length
+            })).filter(member => member.totalFiles > 0)
+          );
+          
+          if (selectedMember) {
+            const updatedMember = {
+              ...selectedMember,
+              files: selectedMember.files.filter(file => file.id !== fileId),
+              totalFiles: selectedMember.files.filter(file => file.id !== fileId).length
+            };
+            setSelectedMember(updatedMember.totalFiles > 0 ? updatedMember : null);
+          }
+          
+          showAlert("Success", `File "${fileName}" deleted successfully!`);
+        } catch (error) {
+          console.error("Error deleting sent file:", error);
+          showAlert("Error", "Failed to delete file. Please check permissions.");
+        }
+      }
+    );
   };
 
   // --- Get files from folder subcollection with pagination ---
@@ -1454,7 +1584,7 @@ const FoldersPage: React.FC = () => {
         q = query(
           filesCollectionRef,
           orderBy("name"),
-          filesLastDoc,
+          startAfter(filesLastDoc), // GAMITIN ANG startAfter DITO
           limit(BATCH_SIZE)
         );
       }
@@ -1500,20 +1630,16 @@ const FoldersPage: React.FC = () => {
     try {
       const allFiles: FileDocument[] = [];
 
-      // Get all folders first with count only for initial load
       const foldersSnapshot = await getDocs(collection(db, "folders"));
 
-      // Get files from each folder's subcollection with limits
       for (const folderDoc of foldersSnapshot.docs) {
         const { files: folderFiles } = await getFilesFromFolder(folderDoc.id);
-        // Add folder location to each file
         const filesWithLocation = folderFiles.map((file) => ({
           ...file,
           location: folderDoc.id,
         }));
         allFiles.push(...filesWithLocation);
 
-        // Early exit if we have enough files for initial display
         if (allFiles.length >= INITIAL_LOAD_LIMIT) {
           break;
         }
@@ -1535,11 +1661,9 @@ const FoldersPage: React.FC = () => {
       const querySnapshot = await getDocs(foldersCollectionRef);
       const fetchedFolders: FolderDocument[] = [];
 
-      // Use Promise.all for parallel folder file count fetching
       const folderPromises = querySnapshot.docs.map(async (doc) => {
         const folderData = doc.data();
         if (folderData && typeof folderData === "object") {
-          // Get file count without loading all files
           const filesCollectionRef = collection(db, "folders", doc.id, "files");
           const countSnapshot = await getCountFromServer(filesCollectionRef);
           const fileCount = countSnapshot.data().count;
@@ -1563,7 +1687,6 @@ const FoldersPage: React.FC = () => {
         }
       });
 
-      // Add "All Folder" folder at the beginning
       const allFilesCount = fetchedFolders.reduce(
         (total, folder) => total + folder.fileCount,
         0
@@ -1577,7 +1700,6 @@ const FoldersPage: React.FC = () => {
 
       setFolders([allFolder, ...fetchedFolders]);
 
-      // Load initial files for "All Folder" view
       const initialFiles = await getAllFiles();
       setFiles(initialFiles);
     } catch (error) {
@@ -1585,7 +1707,6 @@ const FoldersPage: React.FC = () => {
       setError(
         "Failed to load folders. Please check your connection and try again."
       );
-      // Set default folders if fetch fails
       const defaultFolders: FolderDocument[] = [
         {
           id: "all",
@@ -1600,7 +1721,6 @@ const FoldersPage: React.FC = () => {
     }
   };
 
-  // Update folder file counts when files change
   useEffect(() => {
     if (folders.length > 0) {
       const updatedFolders = folders.map((folder) => {
@@ -1616,7 +1736,6 @@ const FoldersPage: React.FC = () => {
     }
   }, [files]);
 
-  // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [
@@ -1627,9 +1746,9 @@ const FoldersPage: React.FC = () => {
     sortDirection,
     fileSortBy,
     fileSortDirection,
+    viewMode,
   ]);
 
-  // --- Menu Toggle ---
   const toggleMenu = (index: number) => {
     setOpenMenuIndex(openMenuIndex === index ? null : index);
   };
@@ -1654,7 +1773,6 @@ const FoldersPage: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- Folder Management ---
   const handleCreateFolder = async (folderName: string) => {
     try {
       const newFolder = {
@@ -1669,10 +1787,16 @@ const FoldersPage: React.FC = () => {
         ...newFolder,
       };
 
-      setFolders((prev) => [prev[0], createdFolder, ...prev.slice(1)]); // Keep "All Folder" first
+      setFolders((prev) => [prev[0], createdFolder, ...prev.slice(1)]);
+      
+      // Show success message after state update
+      showAlert("Success", `Folder "${folderName}" created successfully!`);
+      
+      return Promise.resolve();
     } catch (error) {
       console.error("Error creating folder:", error);
-      throw error;
+      showAlert("Error", "Failed to create folder. Please try again.");
+      return Promise.reject(error);
     }
   };
 
@@ -1683,7 +1807,6 @@ const FoldersPage: React.FC = () => {
       const folderRef = doc(db, "folders", folderToRename.id);
       await updateDoc(folderRef, { name: newName });
 
-      // Update folders state
       setFolders((prev) =>
         prev.map((folder) =>
           folder.id === folderToRename.id
@@ -1705,10 +1828,8 @@ const FoldersPage: React.FC = () => {
       `Are you sure you want to delete the folder "${folderName}"?\n\nALL FILES IN THIS FOLDER WILL BE PERMANENTLY DELETED.\n\nThis action cannot be undone.`,
       async () => {
         try {
-          // Get all files from the folder subcollection first
           const folderFiles = await getFilesFromFolder(folderId);
 
-          // Delete all files from storage
           const storage = getStorage();
           for (const file of folderFiles.files) {
             try {
@@ -1724,14 +1845,11 @@ const FoldersPage: React.FC = () => {
             }
           }
 
-          // Delete the folder document
           await deleteDoc(doc(db, "folders", folderId));
 
-          // Update local state
           setFolders((prev) => prev.filter((folder) => folder.id !== folderId));
           setFiles((prev) => prev.filter((file) => file.location !== folderId));
 
-          // If the deleted folder was selected, switch to "All Folder"
           if (selectedFolderId === folderId) {
             setSelectedFolderId("all");
             setViewMode("folders");
@@ -1750,7 +1868,6 @@ const FoldersPage: React.FC = () => {
     );
   };
 
-  // --- Folder Click Handler ---
   const handleFolderClick = async (folderId: string) => {
     setSelectedFolderId(folderId);
     setViewMode("files");
@@ -1758,7 +1875,6 @@ const FoldersPage: React.FC = () => {
     setFilesLastDoc(null);
     setHasMoreFiles(true);
 
-    // Load files for the selected folder
     if (folderId !== "all") {
       setLoadMoreLoading(true);
       try {
@@ -1775,67 +1891,14 @@ const FoldersPage: React.FC = () => {
     }
   };
 
-  // --- Back to Folders ---
-  const handleBackToFolders = () => {
+  const handleBackToMain = () => {
     setViewMode("folders");
     setSelectedFolderId("all");
+    setSelectedMember(null);
     setCurrentPage(1);
-    // Reload all files for "All Folder" view
     fetchFolders();
   };
 
-  // --- Send Document to Member ---
-  const handleSendToMember = async (
-    file: File,
-    description: string,
-    accNo: string,
-    memberName: string
-  ) => {
-    try {
-      const storage = getStorage();
-      const uniqueFileName = `${Date.now()}_${file.name}`;
-      const storagePath = `member-documents/${accNo}/${uniqueFileName}`;
-      const fileRef = ref(storage, storagePath);
-
-      // Upload file to storage
-      const snapshot = await uploadBytes(fileRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-
-      // Create document record in Firestore
-      const newDoc = {
-        name: file.name,
-        url: downloadURL,
-        size: file.size,
-        lastAccess: format(new Date(), "MMMM dd, yyyy"),
-        location: "member-docs", // Special folder for member documents
-        storagePath: storagePath,
-        description: description,
-        accNo: accNo,
-        memberName: memberName,
-        sentAt: format(new Date(), "MMMM dd, yyyy HH:mm"),
-      };
-
-      // Add to the member documents collection
-      const docRef = await addDoc(collection(db, "member-documents"), newDoc);
-
-      const newFile: FileDocument = { id: docRef.id, ...newDoc };
-      setFiles((prev) => [...prev, newFile]);
-
-      // Update folder file counts
-      setFolders((prev) =>
-        prev.map((folder) =>
-          folder.id === "all"
-            ? { ...folder, fileCount: (folder.fileCount || 0) + 1 }
-            : folder
-        )
-      );
-    } catch (error) {
-      console.error("Error sending document to member:", error);
-      throw error;
-    }
-  };
-
-  // --- Send Multiple Files to Member ---
   const handleSendMultipleFiles = async (
     selectedFiles: FileDocument[],
     description: string,
@@ -1846,10 +1909,8 @@ const FoldersPage: React.FC = () => {
       let successCount = 0;
       let errorCount = 0;
 
-      // Process each file
       for (const file of selectedFiles) {
         try {
-          // Create a copy of the file in member-documents collection
           const newDoc = {
             name: file.name,
             url: file.url,
@@ -1861,7 +1922,7 @@ const FoldersPage: React.FC = () => {
             accNo: accNo,
             memberName: memberName,
             sentAt: format(new Date(), "MMMM dd, yyyy HH:mm"),
-            originalFileId: file.id, // Keep reference to original file
+            originalFileId: file.id,
           };
 
           await addDoc(collection(db, "member-documents"), newDoc);
@@ -1872,10 +1933,9 @@ const FoldersPage: React.FC = () => {
         }
       }
 
-      // Update local state for the new files (optional - you might want to refresh from server)
       const newFiles: FileDocument[] = selectedFiles.map((file) => ({
         ...file,
-        id: `temp-${Date.now()}-${file.id}`, // Temporary ID for local state
+        id: `temp-${Date.now()}-${file.id}`,
         description: description,
         accNo: accNo,
         memberName: memberName,
@@ -1884,7 +1944,6 @@ const FoldersPage: React.FC = () => {
 
       setFiles((prev) => [...prev, ...newFiles]);
 
-      // Update folder file counts
       setFolders((prev) =>
         prev.map((folder) =>
           folder.id === "all"
@@ -1892,30 +1951,47 @@ const FoldersPage: React.FC = () => {
             : folder
         )
       );
+
+      // Show success message
+      if (selectedFiles.length === 1) {
+        showAlert(
+          "Success",
+          `Document successfully sent to ${memberName} (${accNo})`
+        );
+      } else {
+        showAlert(
+          "Success",
+          `Successfully sent ${selectedFiles.length} files to ${memberName} (${accNo})`
+        );
+      }
+      
+      return Promise.resolve();
     } catch (error) {
       console.error("Error sending multiple files:", error);
-      throw error;
+      showAlert("Error", "Failed to send files. Please try again.");
+      return Promise.reject(error);
     }
   };
 
-  // --- Send Multiple Files Handler - FIXED: Only shows files from current folder ---
+  // --- Send Multiple Files Handler - UPDATED: Only works when inside a folder ---
   const handleSendMultipleClick = () => {
-    // Get available files from the CURRENT FOLDER only
-    let availableFiles: FileDocument[];
-
-    if (viewMode === "files" && selectedFolderId !== "all") {
-      // If we're in files view and a specific folder is selected, only show files from that folder
-      availableFiles = files.filter(
-        (file) =>
-          file.location === selectedFolderId && file.location !== "member-docs"
+    // Check if inside a specific folder
+    if (selectedFolderId === "all") {
+      showAlert(
+        "Info",
+        "Please select a specific folder before sending files."
       );
-    } else {
-      // If we're in folders view or "All Folder", show all files except member-docs
-      availableFiles = files.filter((file) => file.location !== "member-docs");
+      return;
     }
 
+    // Get available files from the CURRENT FOLDER only
+    const availableFiles = files.filter(
+      (file) =>
+        file.location === selectedFolderId && file.location !== "member-docs"
+    );
+
     if (availableFiles.length === 0) {
-      showAlert("Info", "No files available to send in the current folder.");
+      showAlert("Info", "No files available to send in this folder.");
       return;
     }
 
@@ -1923,7 +1999,6 @@ const FoldersPage: React.FC = () => {
     setIsSendMultipleModalOpen(true);
   };
 
-  // --- Add File Logic ---
   const handleAddClick = () => {
     if (selectedFolderId === "all") {
       showAlert(
@@ -1968,7 +2043,6 @@ const FoldersPage: React.FC = () => {
         storagePath: storagePath,
       };
 
-      // Add to the folder's subcollection
       const docRef = await addDoc(
         collection(db, "folders", selectedFolderId, "files"),
         newDoc
@@ -1977,7 +2051,6 @@ const FoldersPage: React.FC = () => {
       const newFile: FileDocument = { id: docRef.id, ...newDoc };
       setFiles((prev) => [...prev, newFile]);
 
-      // Update folder file count
       setFolders((prev) =>
         prev.map((folder) =>
           folder.id === selectedFolderId
@@ -1999,7 +2072,6 @@ const FoldersPage: React.FC = () => {
     }
   };
 
-  // --- Delete File Logic ---
   const handleDeleteFile = async (
     fileId: string,
     fileName: string,
@@ -2011,14 +2083,12 @@ const FoldersPage: React.FC = () => {
       `Are you sure you want to delete the file: "${fileName}"?\n\nThis action cannot be undone.`,
       async () => {
         try {
-          // Delete from the appropriate collection
           if (fileLocation === "member-docs") {
             await deleteDoc(doc(db, "member-documents", fileId));
           } else {
             await deleteDoc(doc(db, "folders", fileLocation, "files", fileId));
           }
 
-          // Delete from storage
           const storage = getStorage();
           try {
             const fileRef = ref(storage, storagePath);
@@ -2030,10 +2100,8 @@ const FoldersPage: React.FC = () => {
             );
           }
 
-          // Update local state
           setFiles((prev) => prev.filter((file) => file.id !== fileId));
 
-          // Update folder file counts
           setFolders((prev) =>
             prev.map((folder) =>
               folder.id === fileLocation
@@ -2060,11 +2128,9 @@ const FoldersPage: React.FC = () => {
     );
   };
 
-  // --- Filtering and Sorting Logic for FOLDERS - OPTIMIZED ---
   const filteredAndSortedFolders = useMemo(() => {
     let result = folders.filter((folder) => folder.id !== "all");
 
-    // Filter by Search Query - OPTIMIZED: Uses debounced search
     if (debouncedSearchQuery.trim()) {
       const lower = debouncedSearchQuery.toLowerCase().trim();
       result = result.filter((folder) =>
@@ -2072,7 +2138,6 @@ const FoldersPage: React.FC = () => {
       );
     }
 
-    // Sorting
     result.sort((a, b) => {
       let comparison = 0;
       if (sortBy === "name") {
@@ -2091,16 +2156,13 @@ const FoldersPage: React.FC = () => {
     return result;
   }, [folders, debouncedSearchQuery, sortBy, sortDirection]);
 
-  // --- Filtering and Sorting Logic for FILES - OPTIMIZED ---
   const filteredAndSortedFiles = useMemo(() => {
     let result = files;
 
-    // 1. Filter by Selected Folder
     if (selectedFolderId !== "all") {
       result = result.filter((file) => file.location === selectedFolderId);
     }
 
-    // 2. Filter by Search Query - OPTIMIZED: Uses debounced search
     if (debouncedSearchQuery.trim()) {
       const lower = debouncedSearchQuery.toLowerCase().trim();
       result = result.filter(
@@ -2112,14 +2174,12 @@ const FoldersPage: React.FC = () => {
       );
     }
 
-    // 3. Filter by File Type
     if (fileTypeFilter !== "all") {
       result = result.filter(
         (file) => getFileExtension(file.name) === fileTypeFilter
       );
     }
 
-    // 4. Sorting
     result.sort((a, b) => {
       let comparison = 0;
       if (fileSortBy === "name") {
@@ -2145,7 +2205,6 @@ const FoldersPage: React.FC = () => {
     fileSortDirection,
   ]);
 
-  // --- Pagination Logic ---
   const paginatedFolders = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
@@ -2158,11 +2217,53 @@ const FoldersPage: React.FC = () => {
     return filteredAndSortedFiles.slice(startIndex, endIndex);
   }, [filteredAndSortedFiles, currentPage, itemsPerPage]);
 
-  const totalPages = Math.ceil(
-    viewMode === "folders"
-      ? filteredAndSortedFolders.length / itemsPerPage
-      : filteredAndSortedFiles.length / itemsPerPage
-  );
+  const sentDocumentsTotalPages = Math.ceil(sentDocuments.length / itemsPerPage);
+  const sentDocumentsShowingStart = sentDocuments.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const sentDocumentsShowingEnd = Math.min(currentPage * itemsPerPage, sentDocuments.length);
+
+  const totalPages = useMemo(() => {
+    if (viewMode === "folders") {
+      return Math.ceil(filteredAndSortedFolders.length / itemsPerPage);
+    } else if (viewMode === "files") {
+      return Math.ceil(filteredAndSortedFiles.length / itemsPerPage);
+    } else if (viewMode === "sent-documents") {
+      return sentDocumentsTotalPages;
+    }
+    return 0;
+  }, [viewMode, filteredAndSortedFolders.length, filteredAndSortedFiles.length, sentDocumentsTotalPages, itemsPerPage]);
+
+  const showingStart = useMemo(() => {
+    if (viewMode === "folders") {
+      return filteredAndSortedFolders.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+    } else if (viewMode === "files") {
+      return filteredAndSortedFiles.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+    } else if (viewMode === "sent-documents") {
+      return sentDocumentsShowingStart;
+    }
+    return 0;
+  }, [viewMode, currentPage, itemsPerPage, filteredAndSortedFolders.length, filteredAndSortedFiles.length, sentDocumentsShowingStart]);
+
+  const showingEnd = useMemo(() => {
+    if (viewMode === "folders") {
+      return Math.min(currentPage * itemsPerPage, filteredAndSortedFolders.length);
+    } else if (viewMode === "files") {
+      return Math.min(currentPage * itemsPerPage, filteredAndSortedFiles.length);
+    } else if (viewMode === "sent-documents") {
+      return sentDocumentsShowingEnd;
+    }
+    return 0;
+  }, [viewMode, currentPage, itemsPerPage, filteredAndSortedFolders.length, filteredAndSortedFiles.length, sentDocumentsShowingEnd]);
+
+  const totalItems = useMemo(() => {
+    if (viewMode === "folders") {
+      return filteredAndSortedFolders.length;
+    } else if (viewMode === "files") {
+      return filteredAndSortedFiles.length;
+    } else if (viewMode === "sent-documents") {
+      return sentDocuments.length;
+    }
+    return 0;
+  }, [viewMode, filteredAndSortedFolders.length, filteredAndSortedFiles.length, sentDocuments.length]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -2174,7 +2275,6 @@ const FoldersPage: React.FC = () => {
     setCurrentPage(1);
   };
 
-  // Function to toggle sort direction for folders
   const handleTableSortClick = (key: SortKey) => {
     if (sortBy === key) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -2184,7 +2284,6 @@ const FoldersPage: React.FC = () => {
     }
   };
 
-  // Function to toggle sort direction for files
   const handleFileTableSortClick = (key: FileSortKey) => {
     if (fileSortBy === key) {
       setFileSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -2201,7 +2300,7 @@ const FoldersPage: React.FC = () => {
         {/* Add Button */}
         <button
           onClick={handleAddClick}
-          disabled={selectedFolderId === "all" || viewMode === "folders"}
+          disabled={selectedFolderId === "all" || viewMode !== "files"}
           className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-green-800 transition disabled:opacity-50"
           title={
             selectedFolderId === "all"
@@ -2212,29 +2311,18 @@ const FoldersPage: React.FC = () => {
           <Plus className="w-4 h-4" /> Add File
         </button>
 
-        {/* Send to Member Button */}
-        <button
-          onClick={() => setIsSendToMemberModalOpen(true)}
-          className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-green-800 transition"
-        >
-          <Share className="w-4 h-4" /> Send from storage
-        </button>
-
-        {/* Send Multiple Files Button */}
+        {/* Send Multiple Files Button - UPDATED: Only enabled when inside a folder */}
         <button
           onClick={handleSendMultipleClick}
-          className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-green-800 transition"
-          disabled={
-            viewMode === "files" && selectedFolderId !== "all"
-              ? files.filter(
-                  (f) =>
-                    f.location === selectedFolderId &&
-                    f.location !== "member-docs"
-                ).length === 0
-              : files.filter((f) => f.location !== "member-docs").length === 0
+          disabled={selectedFolderId === "all" || viewMode !== "files"}
+          className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-green-800 transition disabled:opacity-50"
+          title={
+            selectedFolderId === "all"
+              ? "Select a specific folder to send files"
+              : "Send File"
           }
         >
-          <Share className="w-4 h-4" /> Send Files
+          <Share className="w-4 h-4" /> Send File
         </button>
 
         {/* Create Folder Button */}
@@ -2244,6 +2332,18 @@ const FoldersPage: React.FC = () => {
         >
           <Folder className="w-4 h-4" /> Create Folder
         </button>
+
+        {/* Sent Documents Button */}
+        <button
+          onClick={() => {
+            setViewMode("sent-documents");
+            fetchSentDocuments();
+          }}
+          className="flex items-center gap-1 px-3 py-1 text-sm rounded hover:bg-green-800 transition"
+        >
+          <UserCircle className="w-4 h-4" /> Sent Documents
+        </button>
+
         <input
           type="file"
           ref={fileInputRef}
@@ -2299,7 +2399,7 @@ const FoldersPage: React.FC = () => {
             if (viewMode === "folders") {
               setSortBy("createdAt");
               setSortDirection("desc");
-            } else {
+            } else if (viewMode === "files") {
               setFileSortBy("lastAccess");
               setFileSortDirection("desc");
             }
@@ -2347,7 +2447,7 @@ const FoldersPage: React.FC = () => {
                 File Count (Most)
               </button>
             </>
-          ) : (
+          ) : viewMode === "files" ? (
             <>
               <button
                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-800"
@@ -2377,11 +2477,11 @@ const FoldersPage: React.FC = () => {
                 File Size (Largest)
               </button>
             </>
-          )}
+          ) : null}
         </Dropdown>
       </div>
 
-      {/* Search Input - FIXED: Now works with multiple letters and full words with debouncing */}
+      {/* Search Input */}
       <div className="flex items-center bg-white rounded px-2">
         <Search className="w-4 h-4 text-gray-500" />
         <input
@@ -2389,13 +2489,14 @@ const FoldersPage: React.FC = () => {
           placeholder={
             viewMode === "folders"
               ? "Find a folder"
-              : "Find a file, member, or description"
+              : viewMode === "files"
+              ? "Find a file, member, or description"
+              : "Find a member"
           }
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="ml-2 text-sm p-1 outline-none text-black bg-transparent w-64"
         />
-        {/* Clear search button */}
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
@@ -2408,33 +2509,22 @@ const FoldersPage: React.FC = () => {
     </div>
   );
 
-  // --- Initial Data Fetch ---
   useEffect(() => {
     fetchFolders();
   }, []);
 
-  // --- Page Render ---
   return (
     <div className="min-h-screen bg-white">
-      {/* TOP HEADER - Folders Header */}
       <header className="w-full bg-[#1e4643] text-white shadow-lg p-3 px-6 flex justify-between items-center flex-shrink-0">
-        {/* Folders Title - Left Side */}
         <div className="flex items-center space-x-4">
           <h1 className="text-sm font-Montserrat font-extrabold text-yel ">
             Folders
           </h1>
         </div>
 
-        {/* Empty Center for Balance */}
         <div className="flex-1"></div>
 
-        {/* Profile/User Icon on the Right */}
         <div className="flex items-center space-x-3">
-          {/* <button className="p-2 rounded-full hover:bg-white/20 transition-colors">
-            <Share size={20} /> 
-          </button> */}
-
-          {/* ADMIN BUTTON: Navigation Handler */}
           <div
             className="flex items-center space-x-2 cursor-pointer hover:bg-white/20 p-1 pr-2 rounded-full transition-colors"
             onClick={handleAdminClick}
@@ -2447,63 +2537,64 @@ const FoldersPage: React.FC = () => {
 
       <main className="bg-gray-100">
         <div className="p-6 space-y-6">
-          {/* Toolbar */}
           <Toolbar />
 
-          {/* Loading State */}
-          {loading ? (
+          {loading && viewMode !== "sent-documents" ? (
             <LoadingSpinner size={12} text="Loading folders and files..." />
           ) : error ? (
             <ErrorDisplay message={error} onRetry={fetchFolders} />
           ) : (
             <>
-              {/* Current Folder Info */}
               <div className="bg-white p-4 rounded-lg border">
                 <div className="flex items-center gap-2 mb-2">
+                  {viewMode === "sent-documents" && selectedMember && (
+                    <button
+                      onClick={() => setSelectedMember(null)}
+                      className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Back to Members
+                    </button>
+                  )}
                   {viewMode === "files" && (
                     <button
-                      onClick={handleBackToFolders}
+                      onClick={handleBackToMain}
                       className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
                     >
                       <ArrowLeft className="w-4 h-4" />
                       Back to Folders
                     </button>
                   )}
+                  {viewMode === "sent-documents" && !selectedMember && (
+                    <button
+                      onClick={handleBackToMain}
+                      className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Back to Folders
+                    </button>
+                  )}
+                  
                   {viewMode === "folders" ? (
                     <FolderOpen className="w-6 h-6 text-blue-600" />
+                  ) : viewMode === "sent-documents" ? (
+                    <UserCircle className="w-6 h-6 text-blue-600" />
                   ) : (
                     <Folder className="w-6 h-6 text-blue-600" />
                   )}
                   <h2 className="text-lg font-semibold">
                     {viewMode === "folders"
                       ? "All Folders"
-                      : folders.find((f) => f.id === selectedFolderId)?.name ||
-                        "Folder"}
+                      : viewMode === "sent-documents"
+                      ? selectedMember
+                        ? `Files sent to ${selectedMember.memberName}`
+                        : "Sent Documents"
+                      : folders.find((f) => f.id === selectedFolderId)?.name || "Folder"}
                   </h2>
                 </div>
-                <p className="text-sm text-gray-600">
-                  {viewMode === "folders"
-                    ? `Contains ${folders.filter((f) => f.id !== "all").length} folders with ${files.length} total files`
-                    : `Contains ${filteredAndSortedFiles.length} files`}
-                  {debouncedSearchQuery &&
-                    ` • Filtered by "${debouncedSearchQuery}"`}
-                </p>
+               
               </div>
 
-              {/* Count and Pagination Info */}
-              <div className="flex justify-between items-center mt-6">
-                <div className="text-sm text-gray-600">
-                  {viewMode === "folders"
-                    ? `Showing ${paginatedFolders.length} of ${filteredAndSortedFolders.length} folders`
-                    : `Showing ${paginatedFiles.length} of ${filteredAndSortedFiles.length} files`}
-                  {debouncedSearchQuery && ` for "${debouncedSearchQuery}"`}
-                  {viewMode === "files" &&
-                    fileTypeFilter !== "all" &&
-                    ` (${fileTypeFilter.toUpperCase()})`}
-                </div>
-              </div>
-
-              {/* FOLDERS Table */}
               {viewMode === "folders" && (
                 <div className="mt-4 pt-4">
                   <div className="grid grid-cols-4 font-semibold text-sm text-gray-700 border-b pb-2">
@@ -2606,7 +2697,6 @@ const FoldersPage: React.FC = () => {
                     ))
                   )}
 
-                  {/* Pagination */}
                   {filteredAndSortedFolders.length > 0 && (
                     <Pagination
                       currentPage={currentPage}
@@ -2614,12 +2704,14 @@ const FoldersPage: React.FC = () => {
                       onPageChange={handlePageChange}
                       itemsPerPage={itemsPerPage}
                       onItemsPerPageChange={handleItemsPerPageChange}
+                      totalItems={totalItems}
+                      showingStart={showingStart}
+                      showingEnd={showingEnd}
                     />
                   )}
                 </div>
               )}
 
-              {/* FILES Table */}
               {viewMode === "files" && (
                 <div className="mt-4 pt-4">
                   <div className="grid grid-cols-5 font-semibold text-sm text-gray-700 border-b pb-2">
@@ -2671,7 +2763,6 @@ const FoldersPage: React.FC = () => {
                                 className={`w-4 h-4 ${getFileIconColor(file.name)}`}
                               />
 
-                              {/* Fixed Download Button - Prevents app from disappearing */}
                               <button
                                 onClick={(e) => {
                                   e.preventDefault();
@@ -2684,7 +2775,6 @@ const FoldersPage: React.FC = () => {
                                 {file.name}
                               </button>
                             </div>
-                            {/* Display description and member info if available */}
                             {(file.description || file.memberName) && (
                               <div className="text-xs text-gray-500 mt-1 ml-6">
                                 {file.description && (
@@ -2712,7 +2802,6 @@ const FoldersPage: React.FC = () => {
                               />
                               {fileMenuIndex === i && (
                                 <div className="absolute top-full right-0 mt-2 bg-white border rounded shadow-lg z-10 p-2 min-w-[150px]">
-                                  {/* Single file actions */}
                                   <div className="flex gap-2 mb-2 pb-2 border-b">
                                     <span
                                       title="Download"
@@ -2750,7 +2839,6 @@ const FoldersPage: React.FC = () => {
                                       title="Send to Member"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        // For single file sending, use the existing modal
                                         setFilesForSending([file]);
                                         setIsSendMultipleModalOpen(true);
                                         setFileMenuIndex(null);
@@ -2774,13 +2862,17 @@ const FoldersPage: React.FC = () => {
                                     </span>
                                   </div>
 
-                                  {/* Bulk actions section */}
                                   <div className="text-xs text-gray-500 px-2 mb-1">
                                     Bulk Actions
                                   </div>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      if (selectedFolderId === "all") {
+                                        showAlert("Info", "Please select a specific folder to send multiple files.");
+                                        setFileMenuIndex(null);
+                                        return;
+                                      }
                                       handleSendMultipleClick();
                                       setFileMenuIndex(null);
                                     }}
@@ -2796,7 +2888,6 @@ const FoldersPage: React.FC = () => {
                         </div>
                       ))}
 
-                      {/* Load More Button for Files */}
                       {hasMoreFiles && selectedFolderId !== "all" && (
                         <div className="flex justify-center mt-4">
                           <button
@@ -2814,7 +2905,6 @@ const FoldersPage: React.FC = () => {
                     </>
                   )}
 
-                  {/* Pagination */}
                   {filteredAndSortedFiles.length > 0 && (
                     <Pagination
                       currentPage={currentPage}
@@ -2822,20 +2912,45 @@ const FoldersPage: React.FC = () => {
                       onPageChange={handlePageChange}
                       itemsPerPage={itemsPerPage}
                       onItemsPerPageChange={handleItemsPerPageChange}
+                      totalItems={totalItems}
+                      showingStart={showingStart}
+                      showingEnd={showingEnd}
                     />
                   )}
                 </div>
+              )}
+
+              {viewMode === "sent-documents" && (
+                <SentDocumentsView
+                  members={sentDocuments}
+                  loading={sentDocumentsLoading}
+                  onMemberClick={setSelectedMember}
+                  onBack={() => setSelectedMember(null)}
+                  selectedMember={selectedMember}
+                  onDeleteFile={handleDeleteSentFile}
+                  onDeleteMember={handleDeleteMember}
+                  currentPage={currentPage}
+                  onPageChange={handlePageChange}
+                  itemsPerPage={itemsPerPage}
+                  onItemsPerPageChange={handleItemsPerPageChange}
+                  totalItems={totalItems}
+                  showingStart={showingStart}
+                  showingEnd={showingEnd}
+                  totalPages={totalPages}
+                />
               )}
             </>
           )}
         </div>
       </main>
 
-      {/* Modals */}
       <CreateFolderModal
         isOpen={isCreateFolderModalOpen}
         onClose={() => setIsCreateFolderModalOpen(false)}
         onCreate={handleCreateFolder}
+        onSuccess={() => {
+          // Alert is already shown in handleCreateFolder
+        }}
       />
 
       <RenameFolderModal
@@ -2848,20 +2963,16 @@ const FoldersPage: React.FC = () => {
         currentName={folderToRename?.name || ""}
       />
 
-      <SendToMemberModal
-        isOpen={isSendToMemberModalOpen}
-        onClose={() => setIsSendToMemberModalOpen(false)}
-        onSend={handleSendToMember}
-      />
-
       <SendMultipleFilesModal
         isOpen={isSendMultipleModalOpen}
         onClose={() => setIsSendMultipleModalOpen(false)}
         onSend={handleSendMultipleFiles}
         availableFiles={filesForSending}
+        onSuccess={() => {
+          // Alert is already shown in handleSendMultipleFiles
+        }}
       />
 
-      {/* Global Alert and Confirm Components */}
       <CustomAlert
         show={alertState.show}
         title={alertState.title}
